@@ -223,6 +223,7 @@ private class KeyMouseView(
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pointerKeys = mutableMapOf<Int, Int>()
     private val pressedUsages = mutableSetOf<Int>()
+    private val pendingTapReleases = mutableMapOf<Int, Runnable>()
     private var pressedPadButton = 0
     private var padPressed = false
     private var mouseCandidateId = -1
@@ -244,6 +245,8 @@ private class KeyMouseView(
             if (mouseButtons != 0) mouse(0, 0, 0, 0)
             mouseButtons = 0
             mouseMode = false
+            // マウス操作用の一時エフェクトを残さず、実際に押されているキーだけ表示する。
+            pressedUsages.retainAll(pointerKeys.values.toSet())
             invalidate()
         }
     }
@@ -268,7 +271,7 @@ private class KeyMouseView(
         listOf(
             KeyCap("Shift",0xE1,2.1f), KeyCap("Z",29), KeyCap("X",27), KeyCap("C",6), KeyCap("V",25),
             KeyCap("B",5), KeyCap("N",17), KeyCap("M",16), KeyCap(",",54, shiftLabel="<"), KeyCap(".",55, shiftLabel=">"),
-            KeyCap("/",56, shiftLabel="?"), KeyCap("Shift",0xE5,4.0f)
+            KeyCap("/",56, shiftLabel="?"), KeyCap("Shift",0xE5,2.1f)
         ),
         listOf(
             KeyCap("Ctrl",0xE0,1.35f), KeyCap("Win",0xE3,1.15f), KeyCap("Alt",0xE2,1.15f),
@@ -422,6 +425,28 @@ private class KeyMouseView(
         invalidate()
     }
 
+    // 右側1/3のタップはマウスジェスチャーとの判定後に送るため、
+    // 押下と解放の間隔を確保して短いタップもHID側で取りこぼさないようにする。
+    private fun tapKey(usage: Int) {
+        pendingTapReleases.remove(usage)?.let {
+            handler.removeCallbacks(it)
+            if (pointerKeys.values.none { held -> held == usage }) key(usage, false)
+        }
+        pressedUsages.add(usage)
+        key(usage, true)
+        invalidate()
+        val release = Runnable {
+            if (pointerKeys.values.none { held -> held == usage }) {
+                pressedUsages.remove(usage)
+                key(usage, false)
+            }
+            pendingTapReleases.remove(usage)
+            invalidate()
+        }
+        pendingTapReleases[usage] = release
+        handler.postDelayed(release, 55L)
+    }
+
     private fun activateMouseMode() {
         if (mouseCandidateId == -1 || mouseMode) return
         mouseMode = true
@@ -467,8 +492,7 @@ private class KeyMouseView(
         if (!mouseMode && !cancelled) {
             if (mouseCandidatePreviewUsage != 0) {
                 pressedUsages.remove(mouseCandidatePreviewUsage)
-                key(mouseCandidatePreviewUsage, true)
-                key(mouseCandidatePreviewUsage, false)
+                tapKey(mouseCandidatePreviewUsage)
             } else {
                 addPointerKey(pointerId, mouseCandidateX, mouseCandidateY)
                 removePointerKey(pointerId)
