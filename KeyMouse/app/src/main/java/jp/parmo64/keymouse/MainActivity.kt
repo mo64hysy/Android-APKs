@@ -246,7 +246,7 @@ private class KeyMouseView(
     private val stickUsages = setOf(26, 4, 22, 7)
     private val activeStickUsages = mutableSetOf<Int>()
     private val gamePadLongPress = Runnable {
-        if (gamingMode && gamePadPointerId != -1 && !gamePadMoved && !gamePadRightClick) {
+        if (gamingMode && gamePadPointerId != -1 && !gamePadMoved && !gamePadRightClick && !gamePadLeftDrag) {
             gamePadRightClick = true
             mouse(2, 0, 0, 0)
             invalidate()
