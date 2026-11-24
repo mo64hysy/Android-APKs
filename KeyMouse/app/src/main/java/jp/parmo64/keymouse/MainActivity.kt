@@ -66,7 +66,7 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("keymouse", Context.MODE_PRIVATE)
         surface = KeyMouseView(this, "60%",
             { openSettings() }, { usage, down -> sendKey(usage, down) }, { buttons, dx, dy, wheel -> sendMouse(buttons, dx, dy, wheel) },
-            prefs.getInt("mouse_sensitivity", 8))
+            prefs.getInt("mouse_sensitivity", 8), prefs.getInt("gamepad_tap_window_ms", 500))
         setContentView(surface)
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 10)
@@ -165,6 +165,26 @@ class MainActivity : Activity() {
             progress = surface.mouseSensitivity - 1
         }
         content.addView(seek)
+        val tapWindowLabel = android.widget.TextView(this).apply {
+            text = "再タップ受付時間：" + surface.gamePadTapWindowMs + "ms"
+            textSize = 16f
+            setPadding(0, 18, 0, 0)
+        }
+        content.addView(tapWindowLabel)
+        val tapWindowSeek = android.widget.SeekBar(this).apply {
+            max = 19
+            progress = surface.gamePadTapWindowMs / 50 - 1
+        }
+        content.addView(tapWindowSeek)
+        tapWindowSeek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                surface.gamePadTapWindowMs = (progress + 1) * 50
+                tapWindowLabel.text = "再タップ受付時間：" + surface.gamePadTapWindowMs + "ms"
+                prefs.edit().putInt("gamepad_tap_window_ms", surface.gamePadTapWindowMs).apply()
+            }
+            override fun onStartTrackingTouch(bar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(bar: android.widget.SeekBar?) {}
+        })
         seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                 surface.mouseSensitivity = progress + 1
@@ -213,9 +233,11 @@ private class KeyMouseView(
     private val settings: () -> Unit,
     private val key: (Int, Boolean) -> Unit,
     private val mouse: (Int, Int, Int, Int) -> Unit,
-    initialMouseSensitivity: Int
+    initialMouseSensitivity: Int,
+    initialGamePadTapWindowMs: Int
 ) : View(context) {
     var mouseSensitivity = initialMouseSensitivity.coerceIn(1, 20)
+    var gamePadTapWindowMs = initialGamePadTapWindowMs.coerceIn(50, 1000)
     var status = "未接続"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private data class HitBox(val rect: android.graphics.RectF, val cap: KeyCap)
@@ -243,6 +265,8 @@ private class KeyMouseView(
     private var stickOriginY = 0f
     private var stickX = 0f
     private var stickY = 0f
+    private var stickMoved = false
+    private var stickUsage = 0
     private val stickUsages = setOf(26, 4, 22, 7)
     private val activeStickUsages = mutableSetOf<Int>()
     private val gamePadLongPress = Runnable {
@@ -339,10 +363,10 @@ private class KeyMouseView(
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 3f
                 paint.color = Color.rgb(180, 205, 255)
-                canvas.drawCircle(stickOriginX, stickOriginY, 34f, paint)
+                canvas.drawCircle(stickOriginX, stickOriginY, 102f, paint)
                 paint.style = Paint.Style.FILL
                 paint.color = Color.rgb(120, 160, 220)
-                canvas.drawCircle(stickX, stickY, 13f, paint)
+                canvas.drawCircle(stickX, stickY, 39f, paint)
             }
         }
         paint.color = Color.rgb(55, 65, 80)
@@ -574,7 +598,7 @@ private class KeyMouseView(
     }
 
     private fun setStickDirection(dx: Float, dy: Float) {
-        val radius = 24f
+        val radius = 72f
         val distance = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
         val next = mutableSetOf<Int>()
         if (distance >= radius) {
@@ -595,8 +619,10 @@ private class KeyMouseView(
         (next - activeStickUsages).forEach { key(it, true) }
         activeStickUsages.clear()
         activeStickUsages.addAll(next)
-        stickX = stickOriginX + dx.coerceIn(-48f, 48f)
-        stickY = stickOriginY + dy.coerceIn(-48f, 48f)
+        val maxTravel = 144f
+        val travel = if (distance > maxTravel) maxTravel / distance else 1f
+        stickX = stickOriginX + dx * travel
+        stickY = stickOriginY + dy * travel
         invalidate()
     }
 
@@ -604,6 +630,8 @@ private class KeyMouseView(
         activeStickUsages.toList().forEach { key(it, false) }
         activeStickUsages.clear()
         stickPointerId = -1
+        stickMoved = false
+        stickUsage = 0
         invalidate()
     }
 
@@ -635,6 +663,8 @@ private class KeyMouseView(
             stickPointerId = pointerId
             stickOriginX = x; stickOriginY = y
             stickX = x; stickY = y
+            stickMoved = false
+            stickUsage = hit.usage
             setStickDirection(0f, 0f)
         } else addPointerKey(pointerId, x, y)
     }
@@ -679,7 +709,12 @@ private class KeyMouseView(
                 }
                 if (stickPointerId != -1) {
                     val si = event.findPointerIndex(stickPointerId)
-                    if (si >= 0) setStickDirection(event.getX(si) - stickOriginX, event.getY(si) - stickOriginY)
+                    if (si >= 0) {
+                        val dx = event.getX(si) - stickOriginX
+                        val dy = event.getY(si) - stickOriginY
+                        if (!stickMoved && kotlin.math.hypot(dx.toDouble(), dy.toDouble()) >= 8.0) stickMoved = true
+                        if (stickMoved) setStickDirection(dx, dy)
+                    }
                 }
             }
             MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -694,7 +729,7 @@ private class KeyMouseView(
                         mouse(0, 0, 0, 0)
                         gamePadTapArmed = true
                         handler.removeCallbacks(gamePadTapArmTimeout)
-                        handler.postDelayed(gamePadTapArmTimeout, 500L)
+                        handler.postDelayed(gamePadTapArmTimeout, gamePadTapWindowMs.toLong())
                     }
                     gamePadPointerId = -1
                     gamePadMoved = false
@@ -702,7 +737,10 @@ private class KeyMouseView(
                     gamePadLeftDrag = false
                 }
                 if (id == gameScrollPointerId) gameScrollPointerId = -1
-                if (id == stickPointerId) releaseStick()
+                if (id == stickPointerId) {
+                    if (!stickMoved && event.actionMasked != MotionEvent.ACTION_CANCEL && stickUsage != 0) tapKey(stickUsage)
+                    releaseStick()
+                }
                 removePointerKey(id)
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                     handler.removeCallbacks(gamePadLongPress)
