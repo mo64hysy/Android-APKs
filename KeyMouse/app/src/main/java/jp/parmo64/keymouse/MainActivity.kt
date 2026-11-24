@@ -672,6 +672,7 @@ private class KeyMouseView(
     }
 
     private fun startGamingTouch(pointerId: Int, x: Float, y: Float) {
+        if (y < 44f && x < 120f) { settings(); return }
         if (isInPad(x, y)) {
             if (gamePadPointerId == -1) {
                 gamePadPointerId = pointerId
