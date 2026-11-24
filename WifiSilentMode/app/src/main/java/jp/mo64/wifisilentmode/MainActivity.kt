@@ -126,7 +126,7 @@ private fun WifiSilentScreen(
                     }
                 }
                 if (!permissionGranted) {
-                    Text("SSIDの取得には「付近のデバイス」と位置情報の権限が必要です。位置情報そのものを取得・保存することはありません。")
+                    Text("アプリを閉じてもSSIDを取得するには、位置情報を「常に許可」にする必要があります。位置情報そのものを取得・保存することはありません。下の「アプリの権限設定を開く」から位置情報の許可を変更してください。")
                     Button(onClick = onRequestPermission) { Text("必要な権限を許可") }
                     OutlinedButton(onClick = onOpenSettings) { Text("アプリの権限設定を開く") }
                 } else if (connected && currentSsid == null) {
