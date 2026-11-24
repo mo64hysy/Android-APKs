@@ -5,8 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -52,7 +50,7 @@ class MonitorService : Service() {
     private fun applyNetworkState(connected: Boolean, ssid: String?) {
         if (!AppPrefs.enabled(this)) return
 
-        // Never classify an active Wi-Fi connection as "away" when its SSID is unknown.
+        // Do not treat an active Wi-Fi connection with an unknown SSID as being away.
         if (connected && ssid == null) {
             if (!ssidUnavailableNoticeShown) {
                 getSystemService(NotificationManager::class.java).notify(
@@ -65,11 +63,25 @@ class MonitorService : Service() {
 
         ssidUnavailableNoticeShown = false
         val home = connected && ssid in AppPrefs.ssids(this)
-        if (lastHome != home) {
-            lastHome = home
+        val previousHome = lastHome
+        if (previousHome == home) return
+
+        // Record the detected state even when that direction's action is disabled.
+        lastHome = home
+        val shouldApply = if (home) {
+            AppPrefs.arrivalEnabled(this)
+        } else {
+            AppPrefs.departureEnabled(this)
+        }
+
+        if (shouldApply) {
             SilentMode.apply(this, home)
             getSystemService(NotificationManager::class.java).notify(
                 7, notice(if (home) "自宅：通常モード" else "外出先：バイブレーション")
+            )
+        } else {
+            getSystemService(NotificationManager::class.java).notify(
+                7, notice(if (home) "自宅を検出（切り替えOFF）" else "外出先を検出（切り替えOFF）")
             )
         }
     }
