@@ -176,6 +176,31 @@ class MainActivity : Activity() {
             progress = surface.gamePadTapWindowMs / 50 - 1
         }
         content.addView(tapWindowSeek)
+        val modeLabel = android.widget.TextView(this).apply {
+            text = "操作モード"
+            textSize = 16f
+            setPadding(0, 18, 0, 4)
+        }
+        content.addView(modeLabel)
+        val modeGroup = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.RadioGroup.VERTICAL
+        }
+        listOf("off" to "通常モード", "horizontal" to "横モード", "vertical" to "縦モード").forEach { (value, title) ->
+            val radio = android.widget.RadioButton(this).apply {
+                text = title
+                tag = value
+                id = android.view.View.generateViewId()
+            }
+            modeGroup.addView(radio)
+            if (surface.controlMode == value) modeGroup.check(radio.id)
+        }
+        modeGroup.setOnCheckedChangeListener { group, checkedId ->
+            val selected = group.findViewById<android.widget.RadioButton>(checkedId)?.tag as? String ?: "off"
+            surface.controlMode = selected
+            prefs.edit().putString("control_mode", selected).apply()
+            surface.invalidate()
+        }
+        content.addView(modeGroup)
         val stationaryToleranceLabel = android.widget.TextView(this).apply {
             text = "トラックパッドの静止判定：" + surface.gamePadStationaryTolerancePx + "px"
             textSize = 16f
@@ -896,7 +921,7 @@ private class KeyMouseView(
 
     private fun padButtonAt(x: Float, y: Float): Int {
         if (!hasPad() || y < height - 90f) return 0
-        val relative = ((x - padStart()) / (padWidth() / 3f)).toInt()
+        val relative = if (isVertical()) (x / (width / 3f)).toInt() else ((x - padLeft()) / ((padRight() - padLeft()) / 3f)).toInt()
         return (relative + 1).coerceIn(1, 3)
     }
 }
