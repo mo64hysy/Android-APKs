@@ -64,6 +64,9 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveMode()
         prefs = getSharedPreferences("keymouse", Context.MODE_PRIVATE)
+        requestedOrientation = if (prefs.getString("control_mode", "off") == "vertical")
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         surface = KeyMouseView(this, "60%",
             { openSettings() }, { usage, down -> sendKey(usage, down) }, { buttons, dx, dy, wheel -> sendMouse(buttons, dx, dy, wheel) },
             prefs.getInt("mouse_sensitivity", 8), prefs.getInt("gamepad_tap_window_ms", 500), prefs.getInt("gamepad_stationary_tolerance_px", 1), prefs.getString("control_mode", "off") ?: "off")
@@ -196,9 +199,10 @@ class MainActivity : Activity() {
         }
         modeGroup.setOnCheckedChangeListener { group, checkedId ->
             val selected = group.findViewById<android.widget.RadioButton>(checkedId)?.tag as? String ?: "off"
-            surface.controlMode = selected
             prefs.edit().putString("control_mode", selected).apply()
-            surface.invalidate()
+            requestedOrientation = if (selected == "vertical")
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
         content.addView(modeGroup)
         val stationaryToleranceLabel = android.widget.TextView(this).apply {
