@@ -234,6 +234,8 @@ private class KeyMouseView(
     private var gamePadMoved = false
     private var gamePadRightClick = false
     private var gamePadLeftDrag = false
+    private var gamePadTapArmed = false
+    private val gamePadTapArmTimeout = Runnable { gamePadTapArmed = false }
     private var gameScrollPointerId = -1
     private var gameScrollLastY = 0f
     private var stickPointerId = -1
@@ -331,7 +333,7 @@ private class KeyMouseView(
             val title = "トラックパッド"
             canvas.drawText(title, px + (pw - paint.measureText(title)) / 2f, height / 2f, paint)
             paint.textSize = 11f
-            val hint = "タップ: 左クリック"
+            val hint = "タップ: 左クリック / 再タップ+スワイプ: ドラッグ"
             canvas.drawText(hint, px + 10f, height - 48f, paint)
             if (stickPointerId != -1) {
                 paint.style = Paint.Style.STROKE
@@ -613,7 +615,12 @@ private class KeyMouseView(
                 gamePadLastX = x; gamePadLastY = y
                 gamePadMoved = false
                 gamePadRightClick = false
-                gamePadLeftDrag = false
+                gamePadLeftDrag = gamePadTapArmed
+                if (gamePadTapArmed) {
+                    handler.removeCallbacks(gamePadTapArmTimeout)
+                    gamePadTapArmed = false
+                    mouse(1, 0, 0, 0)
+                }
                 handler.removeCallbacks(gamePadLongPress)
                 handler.postDelayed(gamePadLongPress, 430L)
             } else {
@@ -646,15 +653,18 @@ private class KeyMouseView(
                         if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= 9.0) {
                             gamePadMoved = true
                             handler.removeCallbacks(gamePadLongPress)
-                            if (!gamePadRightClick) {
-                                gamePadLeftDrag = true
-                                mouse(1, 0, 0, 0)
-                            }
                         }
                         if (gamePadMoved) {
                             val dx = ((x - gamePadLastX) * mouseSensitivity).toInt()
                             val dy = ((y - gamePadLastY) * mouseSensitivity).toInt()
-                            if (dx != 0 || dy != 0) mouse(if (gamePadRightClick) 2 else 1, dx, dy, 0)
+                            if (dx != 0 || dy != 0) {
+                                val buttons = when {
+                                    gamePadRightClick -> 2
+                                    gamePadLeftDrag -> 1
+                                    else -> 0
+                                }
+                                mouse(buttons, dx, dy, 0)
+                            }
                         }
                         gamePadLastX = x; gamePadLastY = y
                     }
@@ -676,10 +686,15 @@ private class KeyMouseView(
                 val id = event.getPointerId(idx)
                 if (id == gamePadPointerId) {
                     handler.removeCallbacks(gamePadLongPress)
-                    if (gamePadRightClick || gamePadLeftDrag) mouse(0, 0, 0, 0)
-                    else if (event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                    if (gamePadRightClick || gamePadLeftDrag) {
+                        mouse(0, 0, 0, 0)
+                    } else if (!gamePadMoved && event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                        // 動かさない短いタップだけを左クリックとして扱い、次の押下をドラッグ開始に備える。
                         mouse(1, 0, 0, 0)
                         mouse(0, 0, 0, 0)
+                        gamePadTapArmed = true
+                        handler.removeCallbacks(gamePadTapArmTimeout)
+                        handler.postDelayed(gamePadTapArmTimeout, 500L)
                     }
                     gamePadPointerId = -1
                     gamePadMoved = false
@@ -691,6 +706,8 @@ private class KeyMouseView(
                 removePointerKey(id)
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                     handler.removeCallbacks(gamePadLongPress)
+                    handler.removeCallbacks(gamePadTapArmTimeout)
+                    gamePadTapArmed = false
                     if (gamePadPointerId != -1) mouse(0, 0, 0, 0)
                     gamePadPointerId = -1
                     gameScrollPointerId = -1
