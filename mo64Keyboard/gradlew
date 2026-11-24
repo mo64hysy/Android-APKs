@@ -1,0 +1,17 @@
+#!/bin/sh
+# Bootstrap Gradle wrapper for environments without a generated wrapper JAR.
+set -eu
+GRADLE_VERSION=8.9
+CACHE_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/manual-gradle-$GRADLE_VERSION"
+if [ ! -x "$CACHE_DIR/gradle-$GRADLE_VERSION/bin/gradle" ]; then
+  mkdir -p "$CACHE_DIR"
+  ZIP="$CACHE_DIR/gradle-$GRADLE_VERSION-bin.zip"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o "$ZIP"
+  else
+    echo "curl is required to bootstrap Gradle $GRADLE_VERSION" >&2
+    exit 1
+  fi
+  unzip -q -o "$ZIP" -d "$CACHE_DIR"
+fi
+exec "$CACHE_DIR/gradle-$GRADLE_VERSION/bin/gradle" "$@"
