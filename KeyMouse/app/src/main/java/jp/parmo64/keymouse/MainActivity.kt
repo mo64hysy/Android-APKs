@@ -253,6 +253,8 @@ private class KeyMouseView(
     private var gamePadStartY = 0f
     private var gamePadLastX = 0f
     private var gamePadLastY = 0f
+    private var gamePadMoveRemainderX = 0f
+    private var gamePadMoveRemainderY = 0f
     private var gamePadMoved = false
     private var gamePadRightClick = false
     private var gamePadLeftDrag = false
@@ -641,6 +643,7 @@ private class KeyMouseView(
                 gamePadPointerId = pointerId
                 gamePadStartX = x; gamePadStartY = y
                 gamePadLastX = x; gamePadLastY = y
+                gamePadMoveRemainderX = 0f; gamePadMoveRemainderY = 0f
                 gamePadMoved = false
                 gamePadRightClick = false
                 gamePadLeftDrag = gamePadTapArmed
@@ -680,13 +683,18 @@ private class KeyMouseView(
                     if (pi >= 0) {
                         val x = event.getX(pi); val y = event.getY(pi)
                         val dxTotal = x - gamePadStartX; val dyTotal = y - gamePadStartY
-                        if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= 9.0) {
+                        // ごく小さな移動から追従を開始し、初動のデッドゾーンをなくす。
+                        if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= 1.0) {
                             gamePadMoved = true
                             handler.removeCallbacks(gamePadLongPress)
                         }
                         if (gamePadMoved) {
-                            val dx = ((x - gamePadLastX) * mouseSensitivity).toInt()
-                            val dy = ((y - gamePadLastY) * mouseSensitivity).toInt()
+                            val scaledDx = (x - gamePadLastX) * mouseSensitivity + gamePadMoveRemainderX
+                            val scaledDy = (y - gamePadLastY) * mouseSensitivity + gamePadMoveRemainderY
+                            val dx = scaledDx.toInt()
+                            val dy = scaledDy.toInt()
+                            gamePadMoveRemainderX = scaledDx - dx
+                            gamePadMoveRemainderY = scaledDy - dy
                             if (dx != 0 || dy != 0) {
                                 val buttons = when {
                                     gamePadRightClick -> 2
