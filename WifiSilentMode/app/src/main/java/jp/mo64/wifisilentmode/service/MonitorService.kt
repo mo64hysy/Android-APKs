@@ -3,6 +3,7 @@ package jp.mo64.wifisilentmode.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -25,7 +26,18 @@ class MonitorService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(NotificationChannel("wifi_auto", "Wi-Fi自動切り替え", NotificationManager.IMPORTANCE_LOW))
         }
-        startForeground(7, notice("Wi-Fi状態を監視中"))
+        val notification = notice("Wi-Fi状態を監視中")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                7,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
+        } else {
+            startForeground(7, notification)
+        }
+
         cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         callback = WifiState.createNetworkCallback { connected, ssid ->
             applyNetworkState(connected, ssid)
