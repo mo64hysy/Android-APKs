@@ -1,0 +1,134 @@
+name: Build mo64 Keyboard APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mo64Keyboard/**"
+      - ".github/workflows/mo64-keyboard.yml"
+  pull_request:
+    paths:
+      - "mo64Keyboard/**"
+      - ".github/workflows/mo64-keyboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: mo64Keyboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools ndk;27.2.12479018"
+
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl git python3 unzip zip
+
+      - name: Restore Mozc native build cache
+        id: mozc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mo64Keyboard/mozc/src/main/jniLibs
+            mo64Keyboard/mozc/src/main/assets/mozc.data
+            mo64Keyboard/mozc/src/main/proto/protocol
+          key: mozc-native-${{ runner.os }}-ndk27-${{ hashFiles('mo64Keyboard/scripts/bootstrap_bazel.sh', 'mo64Keyboard/scripts/build_mozc.sh', 'mo64Keyboard/scripts/gen_system_dictionary.py', 'mo64Keyboard/scripts/fetch_dictionaries.sh', 'mo64Keyboard/patches/**', 'mo64Keyboard/third_party/dictionaries/**') }}
+
+      - name: Build Bazel from source
+        if: steps.mozc-cache.outputs.cache-hit != 'true'
+        run: |
+          chmod +x scripts/bootstrap_bazel.sh scripts/build_mozc.sh
+          ./scripts/bootstrap_bazel.sh
+
+      - name: Build Mozc native engine and dictionary
+        if: steps.mozc-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" ./scripts/build_mozc.sh
+
+      - name: Save Mozc native build cache
+        if: steps.mozc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mo64Keyboard/mozc/src/main/jniLibs
+            mo64Keyboard/mozc/src/main/assets/mozc.data
+            mo64Keyboard/mozc/src/main/proto/protocol
+          key: mozc-native-${{ runner.os }}-ndk27-${{ hashFiles('mo64Keyboard/scripts/bootstrap_bazel.sh', 'mo64Keyboard/scripts/build_mozc.sh', 'mo64Keyboard/scripts/gen_system_dictionary.py', 'mo64Keyboard/scripts/fetch_dictionaries.sh', 'mo64Keyboard/patches/**', 'mo64Keyboard/third_party/dictionaries/**') }}
+
+      - name: Package Mozc runtime
+        run: |
+          rm -rf build/mozc-runtime
+          mkdir -p build/mozc-runtime/lib
+          cp -a mozc/src/main/jniLibs/. build/mozc-runtime/lib/
+          cp mozc/src/main/assets/mozc.data build/mozc-runtime/mozc.data
+          cd build/mozc-runtime
+          zip -qr "$GITHUB_WORKSPACE/mozc-engine.zip" .
+          cd "$GITHUB_WORKSPACE"
+          sha256sum mozc-engine.zip > mozc-engine.zip.sha256
+
+      - name: Prepare stable signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mo64-release.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/mo64-release.keystore" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "HAS_ANDROID_SIGNING=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_ANDROID_SIGNING=false" >> "$GITHUB_ENV"
+            echo "Stable signing key is not configured; building a temporary debug APK."
+          fi
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Build APK
+        run: |
+          if [ "$HAS_ANDROID_SIGNING" = "true" ]; then
+            ./gradlew --no-daemon assembleRelease
+          else
+            ./gradlew --no-daemon assembleDebug
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mo64Keyboard-apk
+          path: |
+            mo64Keyboard/app/build/outputs/apk/release/app-release.apk
+            mo64Keyboard/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish Mozc runtime to this repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="mozc-engine-${GITHUB_SHA}"
+          gh release create "$tag" "$GITHUB_WORKSPACE/mo64Keyboard/mozc-engine.zip" "$GITHUB_WORKSPACE/mo64Keyboard/mozc-engine.zip.sha256" \
+            --repo mo64hysy/Android-APKs \
+            --title "Mozc engine ${GITHUB_SHA::7}" \
+            --notes "Automatically built Mozc runtime for mo64Keyboard."
