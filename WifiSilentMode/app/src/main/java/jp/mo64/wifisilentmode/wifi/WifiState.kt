@@ -18,21 +18,26 @@ object WifiState {
         return ContextCompat.checkSelfPermission(c, permission) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun usableSsid(raw: String?): String? {
+        if (raw == null || raw == WifiManager.UNKNOWN_SSID || raw == "<unknown ssid>" || raw == "0x") return null
+        return raw.removeSurrounding("\"").takeIf { it.isNotBlank() }
+    }
+
+    @Suppress("DEPRECATION")
     fun ssid(c: Context): String? {
         if (!hasSsidPermission(c)) return null
         return try {
+            // Prefer the compatibility API: NetworkCapabilities may redact WifiInfo fields
+            // unless a callback explicitly requests FLAG_INCLUDE_LOCATION_INFO.
+            val wm = c.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            usableSsid(wm.connectionInfo?.ssid)?.let { return it }
+
+            // Fallback for devices where the compatibility API does not return an SSID.
             val cm = c.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val network = cm.activeNetwork
             val capabilities = network?.let { cm.getNetworkCapabilities(it) }
-            val info = if (Build.VERSION.SDK_INT >= 29) capabilities?.transportInfo as? WifiInfo else null
-            val raw = info?.ssid ?: run {
-                val wm = c.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                @Suppress("DEPRECATION")
-                wm.connectionInfo?.ssid
-            }
-            raw?.takeIf {
-                it != WifiManager.UNKNOWN_SSID && it != "<unknown ssid>" && it != "0x"
-            }?.removeSurrounding("\"")
+            val info = capabilities?.transportInfo as? WifiInfo
+            usableSsid(info?.ssid)
         } catch (_: SecurityException) {
             null
         } catch (_: RuntimeException) {
