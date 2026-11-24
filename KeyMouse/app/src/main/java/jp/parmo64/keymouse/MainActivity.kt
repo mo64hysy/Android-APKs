@@ -200,6 +200,9 @@ class MainActivity : Activity() {
         modeGroup.setOnCheckedChangeListener { group, checkedId ->
             val selected = group.findViewById<android.widget.RadioButton>(checkedId)?.tag as? String ?: "off"
             prefs.edit().putString("control_mode", selected).apply()
+            // 横向き同士の切り替えではActivityが再生成されないため、Viewにも即時反映する。
+            surface.controlMode = selected
+            surface.invalidate()
             requestedOrientation = if (selected == "vertical")
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -721,32 +724,39 @@ private class KeyMouseView(
                     val pi = event.findPointerIndex(gamePadPointerId)
                     if (pi >= 0) {
                         val x = event.getX(pi); val y = event.getY(pi)
-                        val dxTotal = x - gamePadStartX; val dyTotal = y - gamePadStartY
-                        // ごく小さな移動から追従を開始し、初動のデッドゾーンをなくす。
-                        if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= gamePadStationaryTolerancePx.toDouble()) {
-                            gamePadMoved = true
-                            handler.removeCallbacks(gamePadLongPress)
-                            // 許容距離を超えた位置を新しい基準点にし、静止判定分の移動は送らない。
+                        if (gameScrollPointerId != -1) {
+                            // 2本目の指でスクロール中は、1本目の指をカーソル移動に使わない。
+                            // 基準座標だけ更新し、スクロール終了時のカーソルの跳びも防ぐ。
                             gamePadLastX = x
                             gamePadLastY = y
-                        }
-                        if (gamePadMoved) {
-                            val scaledDx = (x - gamePadLastX) * mouseSensitivity + gamePadMoveRemainderX
-                            val scaledDy = (y - gamePadLastY) * mouseSensitivity + gamePadMoveRemainderY
-                            val dx = scaledDx.toInt()
-                            val dy = scaledDy.toInt()
-                            gamePadMoveRemainderX = scaledDx - dx
-                            gamePadMoveRemainderY = scaledDy - dy
-                            if (dx != 0 || dy != 0) {
-                                val buttons = when {
-                                    gamePadRightClick -> 2
-                                    gamePadLeftDrag -> 1
-                                    else -> 0
-                                }
-                                mouse(buttons, dx, dy, 0)
+                        } else {
+                            val dxTotal = x - gamePadStartX; val dyTotal = y - gamePadStartY
+                            // ごく小さな移動から追従を開始し、初動のデッドゾーンをなくす。
+                            if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= gamePadStationaryTolerancePx.toDouble()) {
+                                gamePadMoved = true
+                                handler.removeCallbacks(gamePadLongPress)
+                                // 許容距離を超えた位置を新しい基準点にし、静止判定分の移動は送らない。
+                                gamePadLastX = x
+                                gamePadLastY = y
                             }
+                            if (gamePadMoved) {
+                                val scaledDx = (x - gamePadLastX) * mouseSensitivity + gamePadMoveRemainderX
+                                val scaledDy = (y - gamePadLastY) * mouseSensitivity + gamePadMoveRemainderY
+                                val dx = scaledDx.toInt()
+                                val dy = scaledDy.toInt()
+                                gamePadMoveRemainderX = scaledDx - dx
+                                gamePadMoveRemainderY = scaledDy - dy
+                                if (dx != 0 || dy != 0) {
+                                    val buttons = when {
+                                        gamePadRightClick -> 2
+                                        gamePadLeftDrag -> 1
+                                        else -> 0
+                                    }
+                                    mouse(buttons, dx, dy, 0)
+                                }
+                            }
+                            gamePadLastX = x; gamePadLastY = y
                         }
-                        gamePadLastX = x; gamePadLastY = y
                     }
                 }
                 if (gameScrollPointerId != -1) {
