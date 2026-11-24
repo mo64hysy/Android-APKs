@@ -224,6 +224,32 @@ private class KeyMouseView(
     private val pointerKeys = mutableMapOf<Int, Int>()
     private val pressedUsages = mutableSetOf<Int>()
     private val pendingTapReleases = mutableMapOf<Int, Runnable>()
+    private var gamingMode = false
+    private var ctrlComboLatched = false
+    private var gamePadPointerId = -1
+    private var gamePadStartX = 0f
+    private var gamePadStartY = 0f
+    private var gamePadLastX = 0f
+    private var gamePadLastY = 0f
+    private var gamePadMoved = false
+    private var gamePadRightClick = false
+    private var gamePadLeftDrag = false
+    private var gameScrollPointerId = -1
+    private var gameScrollLastY = 0f
+    private var stickPointerId = -1
+    private var stickOriginX = 0f
+    private var stickOriginY = 0f
+    private var stickX = 0f
+    private var stickY = 0f
+    private val stickUsages = setOf(26, 4, 22, 7)
+    private val activeStickUsages = mutableSetOf<Int>()
+    private val gamePadLongPress = Runnable {
+        if (gamingMode && gamePadPointerId != -1 && !gamePadMoved && !gamePadRightClick) {
+            gamePadRightClick = true
+            mouse(2, 0, 0, 0)
+            invalidate()
+        }
+    }
     private var pressedPadButton = 0
     private var padPressed = false
     private var mouseCandidateId = -1
@@ -280,12 +306,12 @@ private class KeyMouseView(
         )
     )
 
-    private fun hasPad() = false
-    private fun padWidth() = 0f
-    private fun padStart() = width * 2f / 3f
+    private fun hasPad() = gamingMode
+    private fun padWidth() = width / 3f - 12f
+    private fun padStart() = width * 2f / 3f + 6f
     private fun keyboardLeft() = 12f
-    private fun keyboardWidth() = width - 24f
-    private fun isInPad(x: Float) = false
+    private fun keyboardWidth() = if (gamingMode) width * 2f / 3f - 24f else width - 24f
+    private fun isInPad(x: Float) = gamingMode && x >= width * 2f / 3f
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -298,21 +324,23 @@ private class KeyMouseView(
         if (hasPad()) {
             val px = padStart()
             val pw = padWidth()
-            paint.color = if (padPressed) Color.rgb(43, 49, 59) else Color.rgb(65, 72, 84)
-            canvas.drawRoundRect(px, 54f, px + pw, height - 92f, 18f, 18f, paint)
+            paint.color = if (gamePadPointerId != -1) Color.rgb(43, 49, 59) else Color.rgb(65, 72, 84)
+            canvas.drawRoundRect(px, 54f, px + pw, height - 24f, 18f, 18f, paint)
             paint.color = Color.WHITE
             paint.textSize = 16f
             val title = "トラックパッド"
             canvas.drawText(title, px + (pw - paint.measureText(title)) / 2f, height / 2f, paint)
-            val bw = pw / 3f
-            val labels = listOf("左", "スクロール", "右")
-            for (i in 0..2) {
-                val lx = px + i * bw
-                paint.color = if (pressedPadButton == i + 1) Color.rgb(35, 40, 49) else Color.rgb(90, 98, 112)
-                canvas.drawRoundRect(lx + 2f, height - 82f, lx + bw - 2f, height - 24f, 8f, 8f, paint)
-                paint.color = Color.WHITE
-                paint.textSize = 11f
-                canvas.drawText(labels[i], lx + (bw - paint.measureText(labels[i])) / 2f, height - 47f, paint)
+            paint.textSize = 11f
+            val hint = "タップ: 左クリック"
+            canvas.drawText(hint, px + 10f, height - 48f, paint)
+            if (stickPointerId != -1) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 3f
+                paint.color = Color.rgb(180, 205, 255)
+                canvas.drawCircle(stickOriginX, stickOriginY, 34f, paint)
+                paint.style = Paint.Style.FILL
+                paint.color = Color.rgb(120, 160, 220)
+                canvas.drawCircle(stickX, stickY, 13f, paint)
             }
         }
         paint.color = Color.rgb(55, 65, 80)
@@ -411,8 +439,28 @@ private class KeyMouseView(
         pointerKeys[pointerId] = usage
         pressedUsages.add(usage)
         if (!(mouseMode && isMouseModifier(usage))) key(usage, true)
+        if (usage == 0xE0 || usage == 0xE4) checkCtrlChord()
         updateMouseButtons()
         invalidate()
+    }
+
+    private fun checkCtrlChord() {
+        val ctrls = pointerKeys.values.filter { it == 0xE0 || it == 0xE4 }.toSet()
+        if (0xE0 in ctrls && 0xE4 in ctrls && !ctrlComboLatched) {
+            ctrlComboLatched = true
+            pointerKeys.filterValues { it == 0xE0 || it == 0xE4 }.keys.toList().forEach { pointerKeys.remove(it) }
+            pressedUsages.remove(0xE0)
+            pressedUsages.remove(0xE4)
+            key(0xE0, false)
+            key(0xE4, false)
+            gamingMode = !gamingMode
+            handler.removeCallbacks(mouseLongPress)
+            handler.removeCallbacks(mouseGraceRunnable)
+            mouseMode = false
+            mouseButtons = 0
+            mouse(0, 0, 0, 0)
+            invalidate()
+        }
     }
 
     private fun removePointerKey(pointerId: Int) {
@@ -422,6 +470,7 @@ private class KeyMouseView(
             if (!(mouseMode && isMouseModifier(usage))) key(usage, false)
             updateMouseButtons()
         }
+        if ((usage == 0xE0 || usage == 0xE4) && pointerKeys.values.none { it == 0xE0 || it == 0xE4 }) ctrlComboLatched = false
         invalidate()
     }
 
@@ -522,7 +571,140 @@ private class KeyMouseView(
         invalidate()
     }
 
+    private fun setStickDirection(dx: Float, dy: Float) {
+        val radius = 24f
+        val distance = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+        val next = mutableSetOf<Int>()
+        if (distance >= radius) {
+            val angle = Math.toDegrees(kotlin.math.atan2((-dy).toDouble(), dx.toDouble())).toFloat()
+            val sector = (kotlin.math.round(angle / 45f).toInt() + 8) % 8
+            when (sector) {
+                0 -> next.add(7) // D
+                1 -> { next.add(26); next.add(7) } // W+D
+                2 -> next.add(26) // W
+                3 -> { next.add(26); next.add(4) } // W+A
+                4 -> next.add(4) // A
+                5 -> { next.add(22); next.add(4) } // S+A
+                6 -> next.add(22) // S
+                7 -> { next.add(22); next.add(7) } // S+D
+            }
+        }
+        (activeStickUsages - next).forEach { key(it, false) }
+        (next - activeStickUsages).forEach { key(it, true) }
+        activeStickUsages.clear()
+        activeStickUsages.addAll(next)
+        stickX = stickOriginX + dx.coerceIn(-48f, 48f)
+        stickY = stickOriginY + dy.coerceIn(-48f, 48f)
+        invalidate()
+    }
+
+    private fun releaseStick() {
+        activeStickUsages.toList().forEach { key(it, false) }
+        activeStickUsages.clear()
+        stickPointerId = -1
+        invalidate()
+    }
+
+    private fun startGamingTouch(pointerId: Int, x: Float, y: Float) {
+        if (isInPad(x)) {
+            if (gamePadPointerId == -1) {
+                gamePadPointerId = pointerId
+                gamePadStartX = x; gamePadStartY = y
+                gamePadLastX = x; gamePadLastY = y
+                gamePadMoved = false
+                gamePadRightClick = false
+                gamePadLeftDrag = false
+                handler.removeCallbacks(gamePadLongPress)
+                handler.postDelayed(gamePadLongPress, 430L)
+            } else {
+                gameScrollPointerId = pointerId
+                gameScrollLastY = y
+            }
+            invalidate()
+            return
+        }
+        val hit = hitBoxes.firstOrNull { it.rect.contains(x, y) }?.cap
+        if (hit != null && hit.usage in stickUsages && stickPointerId == -1) {
+            stickPointerId = pointerId
+            stickOriginX = x; stickOriginY = y
+            stickX = x; stickY = y
+            setStickDirection(0f, 0f)
+        } else addPointerKey(pointerId, x, y)
+    }
+
+    private fun handleGamingTouch(event: MotionEvent): Boolean {
+        val idx = event.actionIndex
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> startGamingTouch(event.getPointerId(0), event.x, event.y)
+            MotionEvent.ACTION_POINTER_DOWN -> startGamingTouch(event.getPointerId(idx), event.getX(idx), event.getY(idx))
+            MotionEvent.ACTION_MOVE -> {
+                if (gamePadPointerId != -1) {
+                    val pi = event.findPointerIndex(gamePadPointerId)
+                    if (pi >= 0) {
+                        val x = event.getX(pi); val y = event.getY(pi)
+                        val dxTotal = x - gamePadStartX; val dyTotal = y - gamePadStartY
+                        if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= 9.0) {
+                            gamePadMoved = true
+                            handler.removeCallbacks(gamePadLongPress)
+                            if (!gamePadRightClick) {
+                                gamePadLeftDrag = true
+                                mouse(1, 0, 0, 0)
+                            }
+                        }
+                        if (gamePadMoved) {
+                            val dx = ((x - gamePadLastX) * mouseSensitivity).toInt()
+                            val dy = ((y - gamePadLastY) * mouseSensitivity).toInt()
+                            if (dx != 0 || dy != 0) mouse(if (gamePadRightClick) 2 else 1, dx, dy, 0)
+                        }
+                        gamePadLastX = x; gamePadLastY = y
+                    }
+                }
+                if (gameScrollPointerId != -1) {
+                    val si = event.findPointerIndex(gameScrollPointerId)
+                    if (si >= 0) {
+                        val y = event.getY(si)
+                        val wheel = ((gameScrollLastY - y) / 24f).toInt()
+                        if (wheel != 0) { mouse(0, 0, 0, wheel); gameScrollLastY = y }
+                    }
+                }
+                if (stickPointerId != -1) {
+                    val si = event.findPointerIndex(stickPointerId)
+                    if (si >= 0) setStickDirection(event.getX(si) - stickOriginX, event.getY(si) - stickOriginY)
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val id = event.getPointerId(idx)
+                if (id == gamePadPointerId) {
+                    handler.removeCallbacks(gamePadLongPress)
+                    if (gamePadRightClick || gamePadLeftDrag) mouse(0, 0, 0, 0)
+                    else if (event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                        mouse(1, 0, 0, 0)
+                        mouse(0, 0, 0, 0)
+                    }
+                    gamePadPointerId = -1
+                    gamePadMoved = false
+                    gamePadRightClick = false
+                    gamePadLeftDrag = false
+                }
+                if (id == gameScrollPointerId) gameScrollPointerId = -1
+                if (id == stickPointerId) releaseStick()
+                removePointerKey(id)
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    handler.removeCallbacks(gamePadLongPress)
+                    if (gamePadPointerId != -1) mouse(0, 0, 0, 0)
+                    gamePadPointerId = -1
+                    gameScrollPointerId = -1
+                    releaseStick()
+                    pointerKeys.keys.toList().forEach { removePointerKey(it) }
+                }
+            }
+        }
+        invalidate()
+        return true
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (gamingMode) return handleGamingTouch(event)
         val actionIndex = event.actionIndex
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
