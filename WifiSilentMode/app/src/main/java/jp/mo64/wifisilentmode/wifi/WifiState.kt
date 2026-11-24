@@ -16,7 +16,9 @@ object WifiState {
         val nearbyGranted = Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(c, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
         val locationGranted = ContextCompat.checkSelfPermission(c, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        return nearbyGranted && locationGranted
+        val backgroundGranted = Build.VERSION.SDK_INT < 29 ||
+            ContextCompat.checkSelfPermission(c, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return nearbyGranted && locationGranted && backgroundGranted
     }
 
     fun usableSsid(raw: String?): String? {
