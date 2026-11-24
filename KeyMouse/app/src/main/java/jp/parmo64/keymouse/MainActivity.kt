@@ -66,7 +66,7 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("keymouse", Context.MODE_PRIVATE)
         surface = KeyMouseView(this, "60%",
             { openSettings() }, { usage, down -> sendKey(usage, down) }, { buttons, dx, dy, wheel -> sendMouse(buttons, dx, dy, wheel) },
-            prefs.getInt("mouse_sensitivity", 8), prefs.getInt("gamepad_tap_window_ms", 500), prefs.getInt("gamepad_stationary_tolerance_px", 1))
+            prefs.getInt("mouse_sensitivity", 8), prefs.getInt("gamepad_tap_window_ms", 500), prefs.getInt("gamepad_stationary_tolerance_px", 1), prefs.getString("control_mode", "off") ?: "off")
         setContentView(surface)
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 10)
@@ -255,8 +255,11 @@ private class KeyMouseView(
     private val mouse: (Int, Int, Int, Int) -> Unit,
     initialMouseSensitivity: Int,
     initialGamePadTapWindowMs: Int,
-    initialGamePadStationaryTolerancePx: Int
+    initialGamePadStationaryTolerancePx: Int,
+    initialControlMode: String
 ) : View(context) {
+    var controlMode = initialControlMode.takeIf { it in setOf("off", "horizontal", "vertical") } ?: "off"
+    private val gamingMode get() = controlMode != "off"
     var mouseSensitivity = initialMouseSensitivity.coerceIn(1, 20)
     var gamePadTapWindowMs = initialGamePadTapWindowMs.coerceIn(50, 1000)
     var gamePadStationaryTolerancePx = initialGamePadStationaryTolerancePx.coerceIn(1, 30)
@@ -268,8 +271,6 @@ private class KeyMouseView(
     private val pointerKeys = mutableMapOf<Int, Int>()
     private val pressedUsages = mutableSetOf<Int>()
     private val pendingTapReleases = mutableMapOf<Int, Runnable>()
-    private var gamingMode = false
-    private var ctrlComboLatched = false
     private var gamePadPointerId = -1
     private var gamePadStartX = 0f
     private var gamePadStartY = 0f
@@ -357,32 +358,39 @@ private class KeyMouseView(
     )
 
     private fun hasPad() = gamingMode
-    private fun padWidth() = width / 3f - 12f
-    private fun padStart() = width * 2f / 3f + 6f
+    private fun isVertical() = controlMode == "vertical"
     private fun keyboardLeft() = 12f
-    private fun keyboardWidth() = if (gamingMode) width * 2f / 3f - 24f else width - 24f
-    private fun isInPad(x: Float) = gamingMode && x >= width * 2f / 3f
+    private fun keyboardTop() = if (isVertical()) height * 2f / 3f + 6f else 48f
+    private fun keyboardAreaHeight() = if (isVertical()) height / 3f - 18f else height - 70f
+    private fun keyboardWidth() = if (gamingMode && !isVertical()) width * 2f / 3f - 24f else width - 24f
+    private fun padLeft() = if (isVertical()) 12f else width * 2f / 3f + 6f
+    private fun padTop() = if (isVertical()) 48f else 54f
+    private fun padRight() = if (isVertical()) width - 12f else width - 6f
+    private fun padBottom() = if (isVertical()) height * 2f / 3f - 6f else height - 24f
+    private fun isInPad(x: Float, y: Float) = gamingMode && (if (isVertical()) y < height * 2f / 3f else x >= width * 2f / 3f)
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(25, 28, 34))
         hitBoxes.clear()
-        val keyTop = 48f
+        val keyTop = keyboardTop()
         val keyLeft = keyboardLeft()
         val availableWidth = keyboardWidth()
-        drawKeyboard(canvas, keyLeft, keyTop, availableWidth, height - 70f, null)
+        drawKeyboard(canvas, keyLeft, keyTop, availableWidth, keyboardAreaHeight(), null)
         if (hasPad()) {
-            val px = padStart()
-            val pw = padWidth()
+            val px = padLeft()
+            val py = padTop()
+            val pr = padRight()
+            val pb = padBottom()
             paint.color = if (gamePadPointerId != -1) Color.rgb(43, 49, 59) else Color.rgb(65, 72, 84)
-            canvas.drawRoundRect(px, 54f, px + pw, height - 24f, 18f, 18f, paint)
+            canvas.drawRoundRect(px, py, pr, pb, 18f, 18f, paint)
             paint.color = Color.WHITE
             paint.textSize = 16f
             val title = "トラックパッド"
-            canvas.drawText(title, px + (pw - paint.measureText(title)) / 2f, height / 2f, paint)
+            canvas.drawText(title, (px + pr - paint.measureText(title)) / 2f, (py + pb) / 2f, paint)
             paint.textSize = 11f
             val hint = "タップ: 左クリック / 再タップ+スワイプ: ドラッグ"
-            canvas.drawText(hint, px + 10f, height - 48f, paint)
+            canvas.drawText(hint, px + 10f, pb - 14f, paint)
             if (stickPointerId != -1) {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 3f
@@ -489,28 +497,8 @@ private class KeyMouseView(
         pointerKeys[pointerId] = usage
         pressedUsages.add(usage)
         if (!(mouseMode && isMouseModifier(usage))) key(usage, true)
-        if (usage == 0xE0 || usage == 0xE4) checkCtrlChord()
         updateMouseButtons()
         invalidate()
-    }
-
-    private fun checkCtrlChord() {
-        val ctrls = pointerKeys.values.filter { it == 0xE0 || it == 0xE4 }.toSet()
-        if (0xE0 in ctrls && 0xE4 in ctrls && !ctrlComboLatched) {
-            ctrlComboLatched = true
-            pointerKeys.filterValues { it == 0xE0 || it == 0xE4 }.keys.toList().forEach { pointerKeys.remove(it) }
-            pressedUsages.remove(0xE0)
-            pressedUsages.remove(0xE4)
-            key(0xE0, false)
-            key(0xE4, false)
-            gamingMode = !gamingMode
-            handler.removeCallbacks(mouseLongPress)
-            handler.removeCallbacks(mouseGraceRunnable)
-            mouseMode = false
-            mouseButtons = 0
-            mouse(0, 0, 0, 0)
-            invalidate()
-        }
     }
 
     private fun removePointerKey(pointerId: Int) {
@@ -520,7 +508,6 @@ private class KeyMouseView(
             if (!(mouseMode && isMouseModifier(usage))) key(usage, false)
             updateMouseButtons()
         }
-        if ((usage == 0xE0 || usage == 0xE4) && pointerKeys.values.none { it == 0xE0 || it == 0xE4 }) ctrlComboLatched = false
         invalidate()
     }
 
@@ -660,7 +647,7 @@ private class KeyMouseView(
     }
 
     private fun startGamingTouch(pointerId: Int, x: Float, y: Float) {
-        if (isInPad(x)) {
+        if (isInPad(x, y)) {
             if (gamePadPointerId == -1) {
                 gamePadPointerId = pointerId
                 gamePadStartX = x; gamePadStartY = y
