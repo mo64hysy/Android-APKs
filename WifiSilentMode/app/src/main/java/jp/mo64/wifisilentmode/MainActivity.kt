@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,31 +25,69 @@ import jp.mo64.wifisilentmode.silent.SilentMode
 import jp.mo64.wifisilentmode.wifi.WifiState
 
 class MainActivity : ComponentActivity() {
-    private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    private var wifiPermissionGranted by mutableStateOf(false)
+
+    private fun wifiPermission(): String =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES
+        else Manifest.permission.ACCESS_FINE_LOCATION
+
+    private fun updatePermissionState() {
+        wifiPermissionGranted = ContextCompat.checkSelfPermission(this, wifiPermission()) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        updatePermissionState()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val required = buildList {
+        updatePermissionState()
+        setContent {
+            WifiSilentScreen(
+                context = this,
+                permissionGranted = wifiPermissionGranted,
+                onRequestPermission = { requestWifiPermissions() },
+                onOpenSettings = {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                }
+            )
+        }
+        requestWifiPermissions()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updatePermissionState()
+    }
+
+    private fun requestWifiPermissions() {
+        val requested = buildList {
             if (Build.VERSION.SDK_INT >= 33) {
                 add(Manifest.permission.NEARBY_WIFI_DEVICES)
                 add(Manifest.permission.POST_NOTIFICATIONS)
             } else {
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
                 add(Manifest.permission.ACCESS_FINE_LOCATION)
             }
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (required.isNotEmpty()) permissionRequest.launch(required.toTypedArray())
-        setContent { WifiSilentScreen(this) }
+        if (requested.isNotEmpty()) permissionRequest.launch(requested.toTypedArray())
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WifiSilentScreen(context: Context) {
+private fun WifiSilentScreen(
+    context: Context,
+    permissionGranted: Boolean,
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
     var enabled by remember { mutableStateOf(AppPrefs.enabled(context)) }
     var saved by remember { mutableStateOf(AppPrefs.ssids(context).toList().sorted()) }
     var refresh by remember { mutableIntStateOf(0) }
     val connected = remember(refresh) { WifiState.connected(context) }
-    val currentSsid = remember(refresh) { if (connected) WifiState.ssid(context) else null }
-    val isHome = currentSsid != null && currentSsid in saved
+    val currentSsid = remember(refresh, permissionGranted) { if (connected && permissionGranted) WifiState.ssid(context) else null }
+    val isHome = currentSsid?.let { it in saved }
 
     MaterialTheme {
         Scaffold(topBar = { TopAppBar(title = { Text("Wi-Fiマナーモード") }) }) { insets ->
@@ -59,11 +99,18 @@ private fun WifiSilentScreen(context: Context) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("現在の状態", style = MaterialTheme.typography.titleMedium)
                         Text("Wi-Fi：${currentSsid ?: if (connected) "SSID取得不可" else "未接続"}")
-                        Text("判定：${if (isHome) "自宅" else "外出先"}")
+                        Text("判定：${when { !connected -> "外出先"; isHome == true -> "自宅"; isHome == false -> "外出先"; else -> "判定保留" }}")
                         Text("マナーモード：${SilentMode.label(context)}")
                         Text("自動化：${if (enabled) "ON" else "OFF"}")
                         OutlinedButton(onClick = { refresh++ }) { Text("状態を更新") }
                     }
+                }
+                if (!permissionGranted) {
+                    Text("SSIDを読み取る権限がありません。許可すると自宅Wi-Fiを判定できます。位置情報そのものは取得しません。")
+                    Button(onClick = onRequestPermission) { Text("権限を許可") }
+                    OutlinedButton(onClick = onOpenSettings) { Text("アプリの権限設定を開く") }
+                } else if (connected && currentSsid == null) {
+                    Text("Wi-Fiには接続していますが、SSIDを取得できません。Wi-Fiを再接続してから「状態を更新」してください。")
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("自動切り替え")
