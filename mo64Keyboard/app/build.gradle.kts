@@ -2,26 +2,20 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
-
 android {
     namespace = "jp.example.mykeyboard"
     compileSdk = 35
-
     defaultConfig {
         applicationId = "jp.example.mykeyboard"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
 }
-
-dependencies {
-    implementation(project(":mozc"))
-}
+dependencies { implementation(project(":mozc")) }

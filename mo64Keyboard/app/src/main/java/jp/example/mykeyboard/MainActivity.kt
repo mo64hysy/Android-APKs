@@ -29,8 +29,21 @@ class MainActivity : Activity() {
         }
 
         layout.addView(TextView(this).apply {
-            text = "MyKeyboard"
+            text = "mo64 Keyboard"
             textSize = 26f
+        })
+
+        val runtimeStatus = TextView(this).apply {
+            textSize = 14f
+            text = "Mozcの状態を確認しています…"
+            setPadding(0, pad, 0, pad / 2)
+        }
+        layout.addView(runtimeStatus)
+        layout.addView(Button(this).apply {
+            text = "Mozcをダウンロード／再試行"
+            setOnClickListener {
+                MozcRuntimeManager.download(this@MainActivity) { runtimeStatus.text = it }
+            }
         })
 
         layout.addView(TextView(this).apply {
@@ -181,6 +194,7 @@ class MainActivity : Activity() {
         })
 
         setContentView(layout)
+        MozcRuntimeManager.download(this) { runtimeStatus.text = it }
     }
 
     companion object {

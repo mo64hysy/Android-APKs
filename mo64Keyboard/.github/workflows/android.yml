@@ -57,6 +57,26 @@ jobs:
             mozc/src/main/assets/mozc.data
             mozc/src/main/proto/protocol
           key: mozc-native-${{ runner.os }}-ndk27-${{ hashFiles('scripts/bootstrap_bazel.sh', 'scripts/build_mozc.sh', 'scripts/gen_system_dictionary.py', 'scripts/fetch_dictionaries.sh', 'patches/**', 'third_party/dictionaries/**') }}
+      - name: Package Mozc runtime
+        run: |
+          rm -rf build/mozc-runtime
+          mkdir -p build/mozc-runtime/lib
+          cp -a mozc/src/main/jniLibs/. build/mozc-runtime/lib/
+          cp mozc/src/main/assets/mozc.data build/mozc-runtime/mozc.data
+          cd build/mozc-runtime
+          zip -qr "$GITHUB_WORKSPACE/mozc-engine.zip" .
+          cd "$GITHUB_WORKSPACE"
+          sha256sum mozc-engine.zip > mozc-engine.zip.sha256
+      - name: Publish Mozc runtime to Android-APKs
+        env:
+          GH_TOKEN: ${{ secrets.MOZC_RELEASE_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "MOZC_RELEASE_TOKEN is not configured"; exit 1; }
+          tag="mozc-engine-${GITHUB_SHA}"
+          gh release create "$tag" "$GITHUB_WORKSPACE/mozc-engine.zip" "$GITHUB_WORKSPACE/mozc-engine.zip.sha256" \
+            --repo mo64hysy/Android-APKs \
+            --title "Mozc engine ${GITHUB_SHA::7}" \
+            --notes "Automatically built Mozc runtime for mo64Keyboard."
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
       - name: Build Debug APK

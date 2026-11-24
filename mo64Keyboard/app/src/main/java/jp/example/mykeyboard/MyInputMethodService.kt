@@ -76,6 +76,9 @@ class MyInputMethodService :
     ) {
         super.onStartInputView(info, restarting)
 
+        if (mozcSession == null) {
+            mozcSession = MozcSession(this).takeIf { it.isAvailable }
+        }
         keyboard?.mode = layoutMode
         keyboard?.layoutParams = keyboard?.layoutParams?.apply {
             height = keyboardHeightPx()
