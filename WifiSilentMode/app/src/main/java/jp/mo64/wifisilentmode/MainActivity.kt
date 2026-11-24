@@ -83,6 +83,8 @@ private fun WifiSilentScreen(
     onOpenLocationSettings: () -> Unit
 ) {
     var enabled by remember { mutableStateOf(AppPrefs.enabled(context)) }
+    var arrivalEnabled by remember { mutableStateOf(AppPrefs.arrivalEnabled(context)) }
+    var departureEnabled by remember { mutableStateOf(AppPrefs.departureEnabled(context)) }
     var saved by remember { mutableStateOf(AppPrefs.ssids(context).toList().sorted()) }
     var connected by remember { mutableStateOf(WifiState.connected(context)) }
     var currentSsid by remember { mutableStateOf<String?>(null) }
@@ -141,6 +143,28 @@ private fun WifiSilentScreen(
                         val service = Intent(context, MonitorService::class.java)
                         if (value) ContextCompat.startForegroundService(context, service)
                         else context.stopService(service)
+                    })
+                }
+                HorizontalDivider()
+                Text("切り替え動作", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text("家に入った時")
+                        Text("通常モードに切り替え", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = arrivalEnabled, onCheckedChange = {
+                        arrivalEnabled = it
+                        AppPrefs.setArrivalEnabled(context, it)
+                    })
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text("家から出た時")
+                        Text("バイブレーションに切り替え", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = departureEnabled, onCheckedChange = {
+                        departureEnabled = it
+                        AppPrefs.setDepartureEnabled(context, it)
                     })
                 }
                 Text("自宅Wi-Fi", style = MaterialTheme.typography.titleMedium)
