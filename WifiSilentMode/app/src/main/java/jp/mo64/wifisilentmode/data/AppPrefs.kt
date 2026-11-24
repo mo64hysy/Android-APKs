@@ -10,4 +10,14 @@ object AppPrefs {
     fun remove(c: Context, s: String) { prefs(c).edit().putStringSet("home_ssids", ssids(c) - s).apply() }
     fun enabled(c: Context) = prefs(c).getBoolean("enabled", false)
     fun setEnabled(c: Context, v: Boolean) { prefs(c).edit().putBoolean("enabled", v).apply() }
+
+    fun arrivalEnabled(c: Context) = prefs(c).getBoolean("arrival_enabled", true)
+    fun setArrivalEnabled(c: Context, v: Boolean) {
+        prefs(c).edit().putBoolean("arrival_enabled", v).apply()
+    }
+
+    fun departureEnabled(c: Context) = prefs(c).getBoolean("departure_enabled", true)
+    fun setDepartureEnabled(c: Context, v: Boolean) {
+        prefs(c).edit().putBoolean("departure_enabled", v).apply()
+    }
 }
