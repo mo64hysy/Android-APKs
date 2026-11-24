@@ -710,7 +710,8 @@ private class KeyMouseView(
             MotionEvent.ACTION_DOWN -> {
                 val x = event.getX(0)
                 val y = event.getY(0)
-                if (x >= width * 2f / 3f) {
+                val touchedUsage = hitBoxes.firstOrNull { it.rect.contains(x, y) }?.cap?.usage
+                if (x >= width * 2f / 3f && touchedUsage != 0xE0 && touchedUsage != 0xE4) {
                     mouseCandidateId = event.getPointerId(0)
                     mouseCandidateX = x
                     mouseCandidateY = y
@@ -732,7 +733,7 @@ private class KeyMouseView(
                 val y = event.getY(actionIndex)
                 val pointerId = event.getPointerId(actionIndex)
                 val usage = hitBoxes.firstOrNull { it.rect.contains(x, y) }?.cap?.usage
-                if (mouseCandidateId == -1 && x >= width * 2f / 3f) {
+                if (mouseCandidateId == -1 && x >= width * 2f / 3f && usage != 0xE0 && usage != 0xE4) {
                     // 先にAlt/無変換を押している場合でも、2本目の指でマウス操作を開始できる
                     mouseCandidateId = pointerId
                     mouseCandidateX = x
