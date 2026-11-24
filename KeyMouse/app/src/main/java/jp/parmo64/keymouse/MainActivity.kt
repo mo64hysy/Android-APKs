@@ -66,7 +66,7 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("keymouse", Context.MODE_PRIVATE)
         surface = KeyMouseView(this, "60%",
             { openSettings() }, { usage, down -> sendKey(usage, down) }, { buttons, dx, dy, wheel -> sendMouse(buttons, dx, dy, wheel) },
-            prefs.getInt("mouse_sensitivity", 8), prefs.getInt("gamepad_tap_window_ms", 500))
+            prefs.getInt("mouse_sensitivity", 8), prefs.getInt("gamepad_tap_window_ms", 500), prefs.getInt("gamepad_stationary_tolerance_px", 1))
         setContentView(surface)
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 10)
@@ -176,6 +176,26 @@ class MainActivity : Activity() {
             progress = surface.gamePadTapWindowMs / 50 - 1
         }
         content.addView(tapWindowSeek)
+        val stationaryToleranceLabel = android.widget.TextView(this).apply {
+            text = "トラックパッドの静止判定：" + surface.gamePadStationaryTolerancePx + "px"
+            textSize = 16f
+            setPadding(0, 18, 0, 0)
+        }
+        content.addView(stationaryToleranceLabel)
+        val stationaryToleranceSeek = android.widget.SeekBar(this).apply {
+            max = 29
+            progress = surface.gamePadStationaryTolerancePx - 1
+        }
+        content.addView(stationaryToleranceSeek)
+        stationaryToleranceSeek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                surface.gamePadStationaryTolerancePx = progress + 1
+                stationaryToleranceLabel.text = "トラックパッドの静止判定：" + surface.gamePadStationaryTolerancePx + "px"
+                prefs.edit().putInt("gamepad_stationary_tolerance_px", surface.gamePadStationaryTolerancePx).apply()
+            }
+            override fun onStartTrackingTouch(bar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(bar: android.widget.SeekBar?) {}
+        })
         tapWindowSeek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                 surface.gamePadTapWindowMs = (progress + 1) * 50
@@ -234,10 +254,12 @@ private class KeyMouseView(
     private val key: (Int, Boolean) -> Unit,
     private val mouse: (Int, Int, Int, Int) -> Unit,
     initialMouseSensitivity: Int,
-    initialGamePadTapWindowMs: Int
+    initialGamePadTapWindowMs: Int,
+    initialGamePadStationaryTolerancePx: Int
 ) : View(context) {
     var mouseSensitivity = initialMouseSensitivity.coerceIn(1, 20)
     var gamePadTapWindowMs = initialGamePadTapWindowMs.coerceIn(50, 1000)
+    var gamePadStationaryTolerancePx = initialGamePadStationaryTolerancePx.coerceIn(1, 30)
     var status = "未接続"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private data class HitBox(val rect: android.graphics.RectF, val cap: KeyCap)
@@ -621,7 +643,7 @@ private class KeyMouseView(
         (next - activeStickUsages).forEach { key(it, true) }
         activeStickUsages.clear()
         activeStickUsages.addAll(next)
-        val maxTravel = 144f
+        val maxTravel = 72f
         val travel = if (distance > maxTravel) maxTravel / distance else 1f
         stickX = stickOriginX + dx * travel
         stickY = stickOriginY + dy * travel
@@ -684,9 +706,12 @@ private class KeyMouseView(
                         val x = event.getX(pi); val y = event.getY(pi)
                         val dxTotal = x - gamePadStartX; val dyTotal = y - gamePadStartY
                         // ごく小さな移動から追従を開始し、初動のデッドゾーンをなくす。
-                        if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= 1.0) {
+                        if (!gamePadMoved && kotlin.math.hypot(dxTotal.toDouble(), dyTotal.toDouble()) >= gamePadStationaryTolerancePx.toDouble()) {
                             gamePadMoved = true
                             handler.removeCallbacks(gamePadLongPress)
+                            // 許容距離を超えた位置を新しい基準点にし、静止判定分の移動は送らない。
+                            gamePadLastX = x
+                            gamePadLastY = y
                         }
                         if (gamePadMoved) {
                             val scaledDx = (x - gamePadLastX) * mouseSensitivity + gamePadMoveRemainderX
