@@ -15,11 +15,13 @@ import jp.mo64.wifisilentmode.wifi.WifiState
 class MonitorService : Service() {
     private lateinit var cm: ConnectivityManager
     private var lastHome: Boolean? = null
+    private var ssidUnavailableNoticeShown = false
     private val cb = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = updateMode()
         override fun onLost(network: Network) = updateMode()
         override fun onCapabilitiesChanged(network: Network, caps: android.net.NetworkCapabilities) = updateMode()
     }
+
     override fun onCreate() {
         super.onCreate()
         val nm = getSystemService(NotificationManager::class.java)
@@ -29,15 +31,27 @@ class MonitorService : Service() {
         try { cm.registerDefaultNetworkCallback(cb) } catch (_: Exception) { }
         updateMode()
     }
+
     private fun updateMode() {
         if (!AppPrefs.enabled(this)) return
-        val home = WifiState.connected(this) && WifiState.home(this)
+        val connected = WifiState.connected(this)
+        val ssid = if (connected) WifiState.ssid(this) else null
+        if (connected && ssid == null) {
+            if (!ssidUnavailableNoticeShown) {
+                getSystemService(NotificationManager::class.java).notify(7, notice("SSID取得不可：Wi-Fi権限を確認してください"))
+                ssidUnavailableNoticeShown = true
+            }
+            return
+        }
+        ssidUnavailableNoticeShown = false
+        val home = connected && ssid in AppPrefs.ssids(this)
         if (lastHome != home) {
             lastHome = home
             SilentMode.apply(this, home)
             getSystemService(NotificationManager::class.java).notify(7, notice(if (home) "自宅：通常モード" else "外出先：バイブレーション"))
         }
     }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { updateMode(); return START_STICKY }
     override fun onDestroy() { try { cm.unregisterNetworkCallback(cb) } catch (_: Exception) { }; super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
