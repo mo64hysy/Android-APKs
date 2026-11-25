@@ -9,7 +9,6 @@ on:
       - "mo64Keyboard/scripts/gen_system_dictionary.py"
       - "mo64Keyboard/scripts/fetch_dictionaries.sh"
       - "mo64Keyboard/patches/**"
-      - "mo64Keyboard/mozc/src/main/proto/**"
       - "mo64Keyboard/third_party/dictionaries/**"
   workflow_dispatch:
 
