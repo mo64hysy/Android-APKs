@@ -8,6 +8,8 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.view.WindowInsets
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -87,6 +89,22 @@ class MainActivity : Activity() {
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+        // Keep app controls inside the safe area around system bars and display cutouts.
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val safe = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            } else {
+                android.graphics.Insets.of(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
+            view.setPadding(20 + safe.left, 18 + safe.top, 20 + safe.right, 16 + safe.bottom)
+            insets
+        }
+        root.requestApplyInsets()
     }
 
     private fun field(hintText: String) = EditText(this).apply {
