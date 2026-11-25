@@ -91,17 +91,25 @@ class MainActivity : Activity() {
         setContentView(root)
         // Keep app controls inside the safe area around system bars and display cutouts.
         root.setOnApplyWindowInsetsListener { view, insets ->
-            val safe = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-            } else {
-                android.graphics.Insets.of(
-                    insets.systemWindowInsetLeft,
-                    insets.systemWindowInsetTop,
-                    insets.systemWindowInsetRight,
-                    insets.systemWindowInsetBottom
+            val left: Int
+            val top: Int
+            val right: Int
+            val bottom: Int
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val safe = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
                 )
+                left = safe.left
+                top = safe.top
+                right = safe.right
+                bottom = safe.bottom
+            } else {
+                left = insets.systemWindowInsetLeft
+                top = insets.systemWindowInsetTop
+                right = insets.systemWindowInsetRight
+                bottom = insets.systemWindowInsetBottom
             }
-            view.setPadding(20 + safe.left, 18 + safe.top, 20 + safe.right, 16 + safe.bottom)
+            view.setPadding(20 + left, 18 + top, 20 + right, 16 + bottom)
             insets
         }
         root.requestApplyInsets()
