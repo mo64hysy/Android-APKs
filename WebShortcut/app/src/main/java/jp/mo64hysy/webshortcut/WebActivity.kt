@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Build
 import android.view.WindowInsets
+import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -29,12 +30,21 @@ class WebActivity : Activity() {
             return
         }
         title = target.name
+
+        // Resize the WebView itself to the safe content rectangle. WebView padding alone
+        // does not reliably constrain the page viewport on every Android System WebView.
+        val root = FrameLayout(this)
         webView = WebView(this)
-        setContentView(webView)
-        val extraTop = (AppStore.topMarginDp(this) * resources.displayMetrics.density).toInt()
-        val extraBottom = (AppStore.bottomMarginDp(this) * resources.displayMetrics.density).toInt()
-        // Keep web content inside the safe area and add the user-configured vertical margins.
-        webView.setOnApplyWindowInsetsListener { view, insets ->
+        root.addView(webView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        setContentView(root)
+
+        val density = resources.displayMetrics.density
+        val extraTop = (AppStore.topMarginDp(this) * density).toInt()
+        val extraBottom = (AppStore.bottomMarginDp(this) * density).toInt()
+        root.setOnApplyWindowInsetsListener { _, insets ->
             val left: Int
             val top: Int
             val right: Int
@@ -48,15 +58,20 @@ class WebActivity : Activity() {
                 right = safe.right
                 bottom = safe.bottom
             } else {
-                left = insets.systemWindowInsetLeft
-                top = insets.systemWindowInsetTop
-                right = insets.systemWindowInsetRight
-                bottom = insets.systemWindowInsetBottom
+                val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                    insets.displayCutout else null
+                left = maxOf(insets.systemWindowInsetLeft, cutout?.safeInsetLeft ?: 0)
+                top = maxOf(insets.systemWindowInsetTop, cutout?.safeInsetTop ?: 0)
+                right = maxOf(insets.systemWindowInsetRight, cutout?.safeInsetRight ?: 0)
+                bottom = maxOf(insets.systemWindowInsetBottom, cutout?.safeInsetBottom ?: 0)
             }
-            view.setPadding(left, top + extraTop, right, bottom + extraBottom)
+            val params = webView.layoutParams as FrameLayout.LayoutParams
+            params.setMargins(left, top + extraTop, right, bottom + extraBottom)
+            webView.layoutParams = params
             insets
         }
-        webView.requestApplyInsets()
+        root.requestApplyInsets()
+
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.databaseEnabled = true
