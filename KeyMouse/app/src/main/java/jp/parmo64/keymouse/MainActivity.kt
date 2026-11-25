@@ -326,7 +326,8 @@ private class KeyMouseView(
     initialControlMode: String
 ) : View(context) {
     var controlMode = initialControlMode.takeIf { it in setOf("off", "horizontal", "vertical") } ?: "off"
-    private val gamingMode get() = controlMode != "off"
+    private var normalGamingMode = false
+    private val gamingMode get() = controlMode != "off" || normalGamingMode
     var mouseSensitivity = initialMouseSensitivity.coerceIn(1, 20)
     var gamePadTapWindowMs = initialGamePadTapWindowMs.coerceIn(50, 1000)
     var gamePadStationaryTolerancePx = initialGamePadStationaryTolerancePx.coerceIn(1, 30)
@@ -438,6 +439,29 @@ private class KeyMouseView(
             KeyCap("かな",0x90,1.35f), KeyCap("Alt",0xE6,1.0f), KeyCap("Ctrl",0xE4,1.25f)
         )
     )
+    private val gameRows = listOf(
+        listOf(
+            KeyCap("Esc", 0x29, 1.5f), KeyCap("1",30), KeyCap("2",31), KeyCap("3",32), KeyCap("4",33),
+            KeyCap("5",34), KeyCap("6",35), KeyCap("7",36), KeyCap("8",37), KeyCap("9",38), KeyCap("0",39)
+        ),
+        listOf(
+            KeyCap("Tab",43,1.5f), KeyCap("Q",20), KeyCap("W",26), KeyCap("E",8), KeyCap("R",21),
+            KeyCap("T",23), KeyCap("Y",28), KeyCap("U",24), KeyCap("I",12), KeyCap("O",18)
+        ),
+        listOf(
+            KeyCap("英数",0x91,1.7f), KeyCap("A",4), KeyCap("S",22), KeyCap("D",7), KeyCap("F",9),
+            KeyCap("G",10), KeyCap("H",11), KeyCap("J",13), KeyCap("K",14)
+        ),
+        listOf(
+            KeyCap("Shift",0xE1,2.1f), KeyCap("Z",29), KeyCap("X",27), KeyCap("C",6), KeyCap("V",25),
+            KeyCap("B",5), KeyCap("N",17), KeyCap("M",16)
+        ),
+        listOf(
+            KeyCap("Ctrl",0xE0,1.35f), KeyCap("Win",0xE3,1.15f), KeyCap("Alt",0xE2,1.15f),
+            KeyCap("無変換",0x8B,1.5f), KeyCap("Space",44,4.7f), KeyCap("変換",0x8A,1.5f),
+            KeyCap("かな",0x90,1.35f), KeyCap("Alt",0xE6,1.0f), KeyCap("Ctrl",0xE4,1.25f)
+        )
+    )
 
     private fun hasPad() = gamingMode
     private fun isVertical() = controlMode == "vertical"
@@ -528,7 +552,8 @@ private class KeyMouseView(
         val rowGap = 6f
         val keyGap = 3f
         val keyH = (h - rowGap * 4f) / 5f
-        rows.forEachIndexed { rowIndex, originalRow ->
+        val activeRows = if (normalGamingMode) gameRows else rows
+        activeRows.forEachIndexed { rowIndex, originalRow ->
             val row = if (leftSide == null) originalRow else splitRow(originalRow, rowIndex, leftSide)
             val totalWeight = row.sumOf { it.weight.toDouble() }.toFloat()
             val available = w - keyGap * (row.size - 1)
@@ -578,8 +603,31 @@ private class KeyMouseView(
         if (usage == 0) return
         pointerKeys[pointerId] = usage
         pressedUsages.add(usage)
+        val leftCtrl = pointerKeys.values.any { it == 0xE0 }
+        val rightCtrl = pointerKeys.values.any { it == 0xE4 }
+        if (usage in setOf(0xE0, 0xE4) && leftCtrl && rightCtrl && controlMode == "off") {
+            toggleNormalGamingMode()
+            invalidate()
+            return
+        }
         if (!(mouseMode && isMouseModifier(usage))) key(usage, true)
         updateMouseButtons()
+        invalidate()
+    }
+
+    private fun toggleNormalGamingMode() {
+        val ctrlPointers = pointerKeys.filterValues { it == 0xE0 || it == 0xE4 }.keys.toList()
+        ctrlPointers.forEach { id ->
+            val usage = pointerKeys.remove(id) ?: return@forEach
+            pressedUsages.remove(usage)
+            key(usage, false)
+        }
+        normalGamingMode = !normalGamingMode
+        gamePadPointerId = -1
+        gameScrollPointerId = -1
+        gamePadTapArmed = false
+        handler.removeCallbacks(gamePadTapArmTimeout)
+        mouse(0, 0, 0, 0)
         invalidate()
     }
 
