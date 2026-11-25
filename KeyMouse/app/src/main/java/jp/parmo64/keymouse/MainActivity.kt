@@ -314,7 +314,12 @@ private class KeyMouseView(
     private var gamePadRightClick = false
     private var gamePadLeftDrag = false
     private var gamePadTapArmed = false
-    private val gamePadTapArmTimeout = Runnable { gamePadTapArmed = false }
+    private val gamePadTapArmTimeout = Runnable {
+        if (gamePadTapArmed) {
+            gamePadTapArmed = false
+            mouse(0, 0, 0, 0)
+        }
+    }
     private var gameScrollPointerId = -1
     private var gameScrollLastY = 0f
     private var gamePadScrollGesture = false
@@ -692,9 +697,9 @@ private class KeyMouseView(
                 gamePadRightClick = false
                 gamePadLeftDrag = gamePadTapArmed
                 if (gamePadTapArmed) {
+                    // 1回目のタップで押したボタンを離さず、そのままホールドへ移行する。
                     handler.removeCallbacks(gamePadTapArmTimeout)
                     gamePadTapArmed = false
-                    mouse(1, 0, 0, 0)
                 }
                 handler.removeCallbacks(gamePadLongPress)
                 handler.postDelayed(gamePadLongPress, 430L)
@@ -793,8 +798,8 @@ private class KeyMouseView(
                         mouse(0, 0, 0, 0)
                     } else if (!gamePadMoved && !gamePadScrollGesture && event.actionMasked != MotionEvent.ACTION_CANCEL) {
                         // スクロールジェスチャーではクリックせず、単独の短いタップだけをクリック扱いにする。
+                        // クリックを押した状態で待機し、再タップがなければ受付時間後に離す。
                         mouse(1, 0, 0, 0)
-                        mouse(0, 0, 0, 0)
                         gamePadTapArmed = true
                         handler.removeCallbacks(gamePadTapArmTimeout)
                         handler.postDelayed(gamePadTapArmTimeout, gamePadTapWindowMs.toLong())
