@@ -329,7 +329,16 @@ private class KeyMouseView(
     private var stickX = 0f
     private var stickY = 0f
     private var stickMoved = false
+    private var stickVisible = false
+    private var stickLongPressed = false
     private var stickUsage = 0
+    private val stickLongPress = Runnable {
+        if (stickPointerId != -1 && !stickMoved) {
+            stickLongPressed = true
+            stickVisible = true
+            invalidate()
+        }
+    }
     private val stickUsages = setOf(26, 4, 22, 7)
     private val activeStickUsages = mutableSetOf<Int>()
     private val gamePadLongPress = Runnable {
@@ -429,7 +438,7 @@ private class KeyMouseView(
             paint.textSize = 11f
             val hint = "タップ: 左クリック / 再タップ+スワイプ: ドラッグ"
             canvas.drawText(hint, px + 10f, pb - 14f, paint)
-            if (stickPointerId != -1) {
+            if (stickPointerId != -1 && stickVisible) {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 3f
                 paint.color = Color.rgb(180, 205, 255)
@@ -676,10 +685,13 @@ private class KeyMouseView(
     }
 
     private fun releaseStick() {
+        handler.removeCallbacks(stickLongPress)
         activeStickUsages.toList().forEach { key(it, false) }
         activeStickUsages.clear()
         stickPointerId = -1
         stickMoved = false
+        stickVisible = false
+        stickLongPressed = false
         stickUsage = 0
         invalidate()
     }
@@ -722,8 +734,12 @@ private class KeyMouseView(
             stickOriginX = x; stickOriginY = y
             stickX = x; stickY = y
             stickMoved = false
+            stickVisible = false
+            stickLongPressed = false
             stickUsage = hit.usage
             setStickDirection(0f, 0f)
+            handler.removeCallbacks(stickLongPress)
+            handler.postDelayed(stickLongPress, 350L)
         } else addPointerKey(pointerId, x, y)
     }
 
@@ -785,7 +801,11 @@ private class KeyMouseView(
                     if (si >= 0) {
                         val dx = event.getX(si) - stickOriginX
                         val dy = event.getY(si) - stickOriginY
-                        if (!stickMoved && kotlin.math.hypot(dx.toDouble(), dy.toDouble()) >= 8.0) stickMoved = true
+                        if (!stickMoved && kotlin.math.hypot(dx.toDouble(), dy.toDouble()) >= 8.0) {
+                            stickMoved = true
+                            stickVisible = true
+                            handler.removeCallbacks(stickLongPress)
+                        }
                         if (stickMoved) setStickDirection(dx, dy)
                     }
                 }
@@ -812,7 +832,8 @@ private class KeyMouseView(
                 }
                 if (id == gameScrollPointerId) gameScrollPointerId = -1
                 if (id == stickPointerId) {
-                    if (!stickMoved && event.actionMasked != MotionEvent.ACTION_CANCEL && stickUsage != 0) tapKey(stickUsage)
+                    handler.removeCallbacks(stickLongPress)
+                    if (!stickMoved && !stickLongPressed && event.actionMasked != MotionEvent.ACTION_CANCEL && stickUsage != 0) tapKey(stickUsage)
                     releaseStick()
                 }
                 removePointerKey(id)
