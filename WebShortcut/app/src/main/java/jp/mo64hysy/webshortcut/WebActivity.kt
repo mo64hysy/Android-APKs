@@ -8,8 +8,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import org.json.JSONObject
 import java.io.File
-import java.net.URI
 
 class WebActivity : Activity() {
     companion object { const val EXTRA_ID = "entry_id" }
@@ -18,8 +18,7 @@ class WebActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val id = intent.getStringExtra(EXTRA_ID)
-            ?: intent.data?.lastPathSegment
+        val id = intent.getStringExtra(EXTRA_ID) ?: intent.data?.lastPathSegment
         entry = id?.let { AppStore.find(this, it) }
         val target = entry
         if (target == null) {
@@ -49,7 +48,7 @@ class WebActivity : Activity() {
         webView.webChromeClient = WebChromeClient()
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-        // loadUrl is called on every shortcut launch; no offline page cache is used.
+        // Always navigate to the registered URL when this shortcut window is created.
         webView.loadUrl(target.url)
     }
 
@@ -67,14 +66,23 @@ class WebActivity : Activity() {
         val allow = matches + includes
         if (allow.isNotEmpty() && allow.none { patternMatches(it, currentUrl) }) return
         if (excludes.any { patternMatches(it, currentUrl) }) return
-        val escaped = source.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
-        webView.evaluateJavascript("(function(){try{(function(){`$escaped`}).call(window)}catch(e){console.error('UserScript:',e)}})();", null)
+
+        // JSON quoting safely transports arbitrary script text into evaluateJavascript.
+        val quotedScript = JSONObject.quote(source)
+        webView.evaluateJavascript(
+            "(function(){try{(0,eval)($quotedScript)}catch(e){console.error('UserScript:',e)}})();",
+            null
+        )
     }
 
     private fun patternMatches(pattern: String, url: String): Boolean {
         if (pattern == "<all_urls>") return url.startsWith("http://") || url.startsWith("https://")
-        val regex = Regex("^" + Regex.escape(pattern).replace("\\*", ".*") + "$")
-        return regex.matches(url)
+        val regexPattern = buildString {
+            pattern.forEach { ch ->
+                if (ch == '*') append(".*") else append(Regex.escape(ch.toString()))
+            }
+        }
+        return runCatching { Regex("^$regexPattern$").matches(url) }.getOrDefault(false)
     }
 
     @Deprecated("Deprecated by Android")
