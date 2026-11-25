@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Build
 import android.view.WindowInsets
+import android.graphics.Color
 import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -31,9 +32,9 @@ class WebActivity : Activity() {
         }
         title = target.name
 
-        // Resize the WebView itself to the safe content rectangle. WebView padding alone
-        // does not reliably constrain the page viewport on every Android System WebView.
+        // Keep the safe-area margins visible as black space around the WebView.
         val root = FrameLayout(this)
+        root.setBackgroundColor(Color.BLACK)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
