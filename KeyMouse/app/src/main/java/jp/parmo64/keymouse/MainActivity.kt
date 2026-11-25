@@ -53,8 +53,14 @@ class MainActivity : Activity() {
             refreshStatus()
         }
         override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
-            if (state == BluetoothProfile.STATE_CONNECTED) connected = device
-            if (state == BluetoothProfile.STATE_DISCONNECTED && connected == device) connected = null
+            if (state == BluetoothProfile.STATE_CONNECTED) {
+                connected = device
+                reconnectAttempted = false
+            }
+            if (state == BluetoothProfile.STATE_DISCONNECTED && (connected == device || connected == null)) {
+                connected = null
+                reconnectAttempted = false
+            }
             refreshStatus()
         }
     }
@@ -100,17 +106,40 @@ class MainActivity : Activity() {
     private fun startHid() {
         val a = adapter
         if (a == null || !a.isEnabled) { toast("Bluetoothをオンにしてください"); return }
+        reconnectAttempted = false
         a.getProfileProxy(this, profileListener, BluetoothProfile.HID_DEVICE)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::prefs.isInitialized && registered && connected == null) {
+            reconnectAttempted = false
+            reconnectSavedDevice()
+        }
     }
 
     private fun reconnectSavedDevice() {
         if (reconnectAttempted) return
         reconnectAttempted = true
-        val address = prefs.getString("last_device_address", null) ?: return
+        val address = prefs.getString("last_device_address", null)
+        if (address == null) {
+            chooseDevice()
+            return
+        }
         try {
-            val target = adapter?.bondedDevices?.firstOrNull { it.address == address } ?: return
-            hid?.connect(target)
-        } catch (_: SecurityException) { toast("Bluetooth権限がありません") }
+            val target = adapter?.bondedDevices?.firstOrNull { it.address == address }
+            if (target == null) {
+                prefs.edit().remove("last_device_address").apply()
+                chooseDevice()
+                return
+            }
+            val service = hid ?: run { reconnectAttempted = false; return }
+            val accepted = service.connect(target)
+            if (!accepted) reconnectAttempted = false
+        } catch (_: SecurityException) {
+            reconnectAttempted = false
+            toast("Bluetooth権限がありません")
+        }
     }
 
     private fun registerHid() {
