@@ -292,8 +292,14 @@ class MainActivity : Activity() {
                     val target = devices[which]
                     try {
                         prefs.edit().putString("last_device_address", target.address).apply()
-                        reconnectAttempted = true
-                        hid?.connect(target) ?: toast("HIDサービスを準備中です")
+                        val service = hid
+                        if (service == null) {
+                            reconnectAttempted = false
+                            toast("HIDサービスを準備中です")
+                        } else {
+                            reconnectAttempted = true
+                            if (!service.connect(target)) reconnectAttempted = false
+                        }
                     } catch (_: SecurityException) { toast("Bluetooth権限がありません") }
                 }.setNegativeButton("キャンセル", null).show()
         } catch (_: SecurityException) { toast("Bluetooth権限がありません") }
