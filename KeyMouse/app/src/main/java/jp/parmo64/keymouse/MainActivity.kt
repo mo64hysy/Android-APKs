@@ -230,8 +230,7 @@ class MainActivity : Activity() {
             val selected = group.findViewById<android.widget.RadioButton>(checkedId)?.tag as? String ?: "off"
             prefs.edit().putString("control_mode", selected).apply()
             // 横向き同士の切り替えではActivityが再生成されないため、Viewにも即時反映する。
-            surface.controlMode = selected
-            surface.invalidate()
+            surface.setControlMode(selected)
             requestedOrientation = if (selected == "vertical")
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -328,6 +327,11 @@ private class KeyMouseView(
     var controlMode = initialControlMode.takeIf { it in setOf("off", "horizontal", "vertical") } ?: "off"
     private var normalGamingMode = false
     private val gamingMode get() = controlMode != "off" || normalGamingMode
+    fun setControlMode(value: String) {
+        controlMode = value
+        if (value != "off") normalGamingMode = false
+        invalidate()
+    }
     var mouseSensitivity = initialMouseSensitivity.coerceIn(1, 20)
     var gamePadTapWindowMs = initialGamePadTapWindowMs.coerceIn(50, 1000)
     var gamePadStationaryTolerancePx = initialGamePadStationaryTolerancePx.coerceIn(1, 30)
