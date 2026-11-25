@@ -472,12 +472,13 @@ private class KeyMouseView(
     private fun keyboardLeft() = 12f
     private fun keyboardTop() = if (isVertical()) height * 2f / 3f + 6f else 48f
     private fun keyboardAreaHeight() = if (isVertical()) height / 3f - 18f else height - 70f
+    private fun normalGameBottomTop() = keyboardTop() + keyboardAreaHeight() * 0.8f + 3f
     private fun keyboardWidth() = if (gamingMode && !isVertical()) width * 2f / 3f - 24f else width - 24f
     private fun padLeft() = if (isVertical()) 12f else width * 2f / 3f + 6f
     private fun padTop() = if (isVertical()) 48f else 54f
     private fun padRight() = if (isVertical()) width - 12f else width - 6f
-    private fun padBottom() = if (isVertical()) height * 2f / 3f - 6f else height - 24f
-    private fun isInPad(x: Float, y: Float) = gamingMode && (if (isVertical()) y < height * 2f / 3f else x >= width * 2f / 3f)
+    private fun padBottom() = if (normalGamingMode) normalGameBottomTop() - 6f else if (isVertical()) height * 2f / 3f - 6f else height - 24f
+    private fun isInPad(x: Float, y: Float) = gamingMode && (if (isVertical()) y < height * 2f / 3f else x >= width * 2f / 3f && (!normalGamingMode || y < normalGameBottomTop()))
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -486,7 +487,14 @@ private class KeyMouseView(
         val keyTop = keyboardTop()
         val keyLeft = keyboardLeft()
         val availableWidth = keyboardWidth()
-        drawKeyboard(canvas, keyLeft, keyTop, availableWidth, keyboardAreaHeight(), null)
+        if (normalGamingMode) {
+            val fullHeight = keyboardAreaHeight()
+            val upperHeight = fullHeight * 0.8f
+            drawKeyboard(canvas, keyLeft, keyTop, availableWidth, upperHeight, null, 0..3)
+            drawKeyboard(canvas, keyLeft, normalGameBottomTop(), width - 24f, fullHeight - upperHeight - 3f, null, 4..4)
+        } else {
+            drawKeyboard(canvas, keyLeft, keyTop, availableWidth, keyboardAreaHeight(), null)
+        }
         if (hasPad()) {
             val px = padLeft()
             val py = padTop()
@@ -552,17 +560,20 @@ private class KeyMouseView(
         drawArrowCluster(canvas, x, y + h - 58f, w, 54f)
     }
 
-    private fun drawKeyboard(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, leftSide: Boolean? = null) {
+    private fun drawKeyboard(canvas: Canvas, x: Float, y: Float, w: Float, h: Float, leftSide: Boolean? = null, rowRange: IntRange? = null) {
         val rowGap = 6f
         val keyGap = 3f
-        val keyH = (h - rowGap * 4f) / 5f
-        val activeRows = if (normalGamingMode) gameRows else rows
-        activeRows.forEachIndexed { rowIndex, originalRow ->
+        val activeRows = (if (normalGamingMode) gameRows else rows).let { source ->
+            if (rowRange == null) source else source.slice(rowRange)
+        }
+        val keyH = (h - rowGap * (activeRows.size - 1)) / activeRows.size
+        activeRows.forEachIndexed { localRowIndex, originalRow ->
+            val rowIndex = if (rowRange == null) localRowIndex else rowRange.first + localRowIndex
             val row = if (leftSide == null) originalRow else splitRow(originalRow, rowIndex, leftSide)
             val totalWeight = row.sumOf { it.weight.toDouble() }.toFloat()
             val available = w - keyGap * (row.size - 1)
             var currentX = x
-            val top = y + rowIndex * (keyH + rowGap)
+            val top = y + localRowIndex * (keyH + rowGap)
             row.forEach { cap ->
                 val keyW = available * cap.weight / totalWeight
                 val rect = android.graphics.RectF(currentX, top, currentX + keyW, top + keyH)
