@@ -317,6 +317,7 @@ private class KeyMouseView(
     private val gamePadTapArmTimeout = Runnable { gamePadTapArmed = false }
     private var gameScrollPointerId = -1
     private var gameScrollLastY = 0f
+    private var gamePadScrollGesture = false
     private var stickPointerId = -1
     private var stickOriginX = 0f
     private var stickOriginY = 0f
@@ -687,6 +688,7 @@ private class KeyMouseView(
                 gamePadLastX = x; gamePadLastY = y
                 gamePadMoveRemainderX = 0f; gamePadMoveRemainderY = 0f
                 gamePadMoved = false
+                gamePadScrollGesture = false
                 gamePadRightClick = false
                 gamePadLeftDrag = gamePadTapArmed
                 if (gamePadTapArmed) {
@@ -697,8 +699,14 @@ private class KeyMouseView(
                 handler.removeCallbacks(gamePadLongPress)
                 handler.postDelayed(gamePadLongPress, 430L)
             } else {
+                // 2本目の指が入った時点でスクロール操作と判定し、タップクリックを無効化する。
                 gameScrollPointerId = pointerId
                 gameScrollLastY = y
+                gamePadScrollGesture = true
+                handler.removeCallbacks(gamePadLongPress)
+                if (gamePadRightClick || gamePadLeftDrag) mouse(0, 0, 0, 0)
+                gamePadRightClick = false
+                gamePadLeftDrag = false
             }
             invalidate()
             return
@@ -783,8 +791,8 @@ private class KeyMouseView(
                     handler.removeCallbacks(gamePadLongPress)
                     if (gamePadRightClick || gamePadLeftDrag) {
                         mouse(0, 0, 0, 0)
-                    } else if (!gamePadMoved && event.actionMasked != MotionEvent.ACTION_CANCEL) {
-                        // 動かさない短いタップだけを左クリックとして扱い、次の押下をドラッグ開始に備える。
+                    } else if (!gamePadMoved && !gamePadScrollGesture && event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                        // スクロールジェスチャーではクリックせず、単独の短いタップだけをクリック扱いにする。
                         mouse(1, 0, 0, 0)
                         mouse(0, 0, 0, 0)
                         gamePadTapArmed = true
@@ -793,6 +801,7 @@ private class KeyMouseView(
                     }
                     gamePadPointerId = -1
                     gamePadMoved = false
+                    gamePadScrollGesture = false
                     gamePadRightClick = false
                     gamePadLeftDrag = false
                 }
@@ -809,6 +818,7 @@ private class KeyMouseView(
                     if (gamePadPointerId != -1) mouse(0, 0, 0, 0)
                     gamePadPointerId = -1
                     gameScrollPointerId = -1
+                    gamePadScrollGesture = false
                     releaseStick()
                     pointerKeys.keys.toList().forEach { removePointerKey(it) }
                 }
