@@ -2,6 +2,8 @@ package jp.mo64hysy.webshortcut
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Build
+import android.view.WindowInsets
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -29,6 +31,22 @@ class WebActivity : Activity() {
         title = target.name
         webView = WebView(this)
         setContentView(webView)
+        // Keep web content inside the safe area around system bars and display cutouts.
+        webView.setOnApplyWindowInsetsListener { view, insets ->
+            val safe = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            } else {
+                android.graphics.Insets.of(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
+            view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            insets
+        }
+        webView.requestApplyInsets()
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.databaseEnabled = true
