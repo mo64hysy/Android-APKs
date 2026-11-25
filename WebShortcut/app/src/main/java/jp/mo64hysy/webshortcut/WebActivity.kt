@@ -31,7 +31,9 @@ class WebActivity : Activity() {
         title = target.name
         webView = WebView(this)
         setContentView(webView)
-        // Keep web content inside the safe area around system bars and display cutouts.
+        val extraTop = (AppStore.topMarginDp(this) * resources.displayMetrics.density).toInt()
+        val extraBottom = (AppStore.bottomMarginDp(this) * resources.displayMetrics.density).toInt()
+        // Keep web content inside the safe area and add the user-configured vertical margins.
         webView.setOnApplyWindowInsetsListener { view, insets ->
             val left: Int
             val top: Int
@@ -51,7 +53,7 @@ class WebActivity : Activity() {
                 right = insets.systemWindowInsetRight
                 bottom = insets.systemWindowInsetBottom
             }
-            view.setPadding(left, top, right, bottom)
+            view.setPadding(left, top + extraTop, right, bottom + extraBottom)
             insets
         }
         webView.requestApplyInsets()
@@ -68,37 +70,47 @@ class WebActivity : Activity() {
             }
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
-                injectUserScript(url)
+                injectUserScripts(url)
             }
         }
         webView.webChromeClient = WebChromeClient()
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-        // Always navigate to the registered URL when this shortcut window is created.
         webView.loadUrl(target.url)
     }
 
-    private fun injectUserScript(currentUrl: String) {
-        val path = entry?.scriptPath ?: return
-        if (path.isBlank()) return
-        val file = File(path)
-        if (!file.exists()) return
-        val source = runCatching { file.readText() }.getOrNull() ?: return
-        val meta = source.substringAfter("// ==UserScript==", "").substringBefore("// ==/UserScript==", "")
-        if (meta.isBlank()) return
-        val matches = Regex("(?m)^\\s*//\\s*@match\\s+(.+)$").findAll(meta).map { it.groupValues[1].trim() }.toList()
-        val includes = Regex("(?m)^\\s*//\\s*@include\\s+(.+)$").findAll(meta).map { it.groupValues[1].trim() }.toList()
-        val excludes = Regex("(?m)^\\s*//\\s*@exclude\\s+(.+)$").findAll(meta).map { it.groupValues[1].trim() }.toList()
-        val allow = matches + includes
-        if (allow.isNotEmpty() && allow.none { patternMatches(it, currentUrl) }) return
-        if (excludes.any { patternMatches(it, currentUrl) }) return
+    private fun injectUserScripts(currentUrl: String) {
+        val paths = buildList {
+            AppStore.globalScripts(this@WebActivity)
+                .filter { it.enabled }
+                .forEach { add(it.path) }
+            entry?.scriptPath?.takeIf { it.isNotBlank() }?.let { add(it) }
+        }.distinct()
 
-        // JSON quoting safely transports arbitrary script text into evaluateJavascript.
-        val quotedScript = JSONObject.quote(source)
-        webView.evaluateJavascript(
-            "(function(){try{(0,eval)($quotedScript)}catch(e){console.error('UserScript:',e)}})();",
-            null
-        )
+        paths.forEach { path ->
+            val file = File(path)
+            if (!file.exists()) return@forEach
+            val source = runCatching { file.readText() }.getOrNull() ?: return@forEach
+            val meta = source.substringAfter("// ==UserScript==", "")
+                .substringBefore("// ==/UserScript==", "")
+            if (meta.isBlank()) return@forEach
+
+            val matches = Regex("(?m)^\\s*//\\s*@match\\s+(.+)$")
+                .findAll(meta).map { it.groupValues[1].trim() }.toList()
+            val includes = Regex("(?m)^\\s*//\\s*@include\\s+(.+)$")
+                .findAll(meta).map { it.groupValues[1].trim() }.toList()
+            val excludes = Regex("(?m)^\\s*//\\s*@exclude\\s+(.+)$")
+                .findAll(meta).map { it.groupValues[1].trim() }.toList()
+            val allow = matches + includes
+            if (allow.isNotEmpty() && allow.none { patternMatches(it, currentUrl) }) return@forEach
+            if (excludes.any { patternMatches(it, currentUrl) }) return@forEach
+
+            val quotedScript = JSONObject.quote(source)
+            webView.evaluateJavascript(
+                "(function(){try{(0,eval)($quotedScript)}catch(e){console.error('UserScript:',e)}})();",
+                null
+            )
+        }
     }
 
     private fun patternMatches(pattern: String, url: String): Boolean {
