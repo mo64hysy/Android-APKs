@@ -1,0 +1,112 @@
+name: Build and publish Mozc runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mo64Keyboard/scripts/bootstrap_bazel.sh"
+      - "mo64Keyboard/scripts/build_mozc.sh"
+      - "mo64Keyboard/scripts/gen_system_dictionary.py"
+      - "mo64Keyboard/scripts/fetch_dictionaries.sh"
+      - "mo64Keyboard/patches/**"
+      - "mo64Keyboard/third_party/dictionaries/**"
+  workflow_dispatch:
+
+concurrency:
+  group: mo64-mozc-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools ndk;27.2.12479018"
+
+      - name: Restore Bazel bootstrap cache
+        id: bazel-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: mo64Keyboard/third_party/bazel-dist/output/bazel
+          key: bazel-9.0.2-${{ runner.os }}-jdk21-${{ hashFiles('mo64Keyboard/scripts/bootstrap_bazel.sh') }}
+
+      - name: Restore Mozc native build cache
+        id: mozc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mo64Keyboard/mozc/src/main/jniLibs
+            mo64Keyboard/mozc/src/main/assets/mozc.data
+          key: mozc-native-${{ runner.os }}-ndk27-${{ hashFiles('mo64Keyboard/scripts/bootstrap_bazel.sh', 'mo64Keyboard/scripts/build_mozc.sh', 'mo64Keyboard/scripts/gen_system_dictionary.py', 'mo64Keyboard/scripts/fetch_dictionaries.sh', 'mo64Keyboard/patches/**', 'mo64Keyboard/third_party/dictionaries/**') }}
+
+      - name: Build Bazel from source
+        if: steps.mozc-cache.outputs.cache-hit != 'true'
+        working-directory: mo64Keyboard
+        run: |
+          chmod +x scripts/bootstrap_bazel.sh scripts/build_mozc.sh
+          ./scripts/bootstrap_bazel.sh
+
+      - name: Save Bazel bootstrap cache
+        if: steps.mozc-cache.outputs.cache-hit != 'true' && steps.bazel-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: mo64Keyboard/third_party/bazel-dist/output/bazel
+          key: bazel-9.0.2-${{ runner.os }}-jdk21-${{ hashFiles('mo64Keyboard/scripts/bootstrap_bazel.sh') }}
+
+      - name: Build Mozc native engine and dictionary
+        if: steps.mozc-cache.outputs.cache-hit != 'true'
+        working-directory: mo64Keyboard
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" ./scripts/build_mozc.sh
+
+      - name: Save Mozc native build cache
+        if: steps.mozc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mo64Keyboard/mozc/src/main/jniLibs
+            mo64Keyboard/mozc/src/main/assets/mozc.data
+          key: mozc-native-${{ runner.os }}-ndk27-${{ hashFiles('mo64Keyboard/scripts/bootstrap_bazel.sh', 'mo64Keyboard/scripts/build_mozc.sh', 'mo64Keyboard/scripts/gen_system_dictionary.py', 'mo64Keyboard/scripts/fetch_dictionaries.sh', 'mo64Keyboard/patches/**', 'mo64Keyboard/third_party/dictionaries/**') }}
+
+      - name: Package Mozc runtime
+        working-directory: mo64Keyboard
+        run: |
+          rm -rf build/mozc-runtime
+          mkdir -p build/mozc-runtime/lib
+          cp -a mozc/src/main/jniLibs/. build/mozc-runtime/lib/
+          cp mozc/src/main/assets/mozc.data build/mozc-runtime/mozc.data
+          cd build/mozc-runtime
+          zip -qr "$GITHUB_WORKSPACE/mozc-engine.zip" .
+          cd "$GITHUB_WORKSPACE"
+          sha256sum mozc-engine.zip > mozc-engine.zip.sha256
+
+      - name: Publish Mozc runtime release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="mozc-engine-${GITHUB_SHA}"
+          repo="mo64hysy/Android-APKs"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$tag" mozc-engine.zip mozc-engine.zip.sha256 --repo "$repo" --clobber
+            gh release edit "$tag" --repo "$repo" --latest
+          else
+            gh release create "$tag" mozc-engine.zip mozc-engine.zip.sha256 \
+              --repo "$repo" \
+              --title "Mozc engine ${GITHUB_SHA::7}" \
+              --notes "Automatically built Mozc runtime for mo64Keyboard." \
+              --latest
+          fi
