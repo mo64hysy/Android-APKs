@@ -10,7 +10,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.view.WindowInsets
-import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -18,24 +17,29 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.io.File
+import android.text.InputType
 import java.util.UUID
 
 class MainActivity : Activity() {
     private lateinit var nameField: EditText
     private lateinit var urlField: EditText
+    private lateinit var topMarginField: EditText
+    private lateinit var bottomMarginField: EditText
     private lateinit var status: TextView
     private var selectedIcon = ""
     private var selectedScript = ""
     private var editingId: String? = null
     private val pickIcon = 10
     private val pickScript = 11
+    private val pickGlobalScript = 12
     private lateinit var listBox: LinearLayout
+    private lateinit var globalScriptBox: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildUi()
         renderEntries()
+        renderGlobalScripts()
     }
 
     private fun buildUi() {
@@ -54,18 +58,21 @@ class MainActivity : Activity() {
             text = "URL・名前・アイコンを登録して、ホーム画面から独立したウィンドウで開きます。"
             textSize = 14f
         })
+        content.addView(TextView(this).apply {
+            text = "サイト登録"
+            textSize = 20f
+            setPadding(0, 16, 0, 4)
+        })
         nameField = field("ホーム画面に表示する名前").also { content.addView(it) }
         urlField = field("https://example.com").also { content.addView(it) }
-        val iconButton = Button(this).apply {
+        content.addView(Button(this).apply {
             text = "アイコン画像を選択"
             setOnClickListener { chooseFile("image/*", pickIcon) }
-        }
-        content.addView(iconButton)
-        val scriptButton = Button(this).apply {
-            text = "UserScript（.user.js）を選択（任意）"
+        })
+        content.addView(Button(this).apply {
+            text = "このサイト専用のUserScriptを選択（任意）"
             setOnClickListener { chooseFile("*/*", pickScript) }
-        }
-        content.addView(scriptButton)
+        })
         content.addView(Button(this).apply {
             text = "保存してホーム画面に追加"
             setOnClickListener { saveEntry() }
@@ -79,17 +86,55 @@ class MainActivity : Activity() {
             setPadding(0, 8, 0, 12)
         }
         content.addView(status)
+
+        content.addView(TextView(this).apply {
+            text = "表示の余白設定（dp）"
+            textSize = 20f
+            setPadding(0, 18, 0, 4)
+        })
+        content.addView(TextView(this).apply {
+            text = "システムバー・パンチホールの安全領域に加えて、サイト表示の上下に余白を追加します。"
+            textSize = 13f
+        })
+        topMarginField = numberField("上側の追加余白（0〜300）").also {
+            it.setText(AppStore.topMarginDp(this).toString())
+            content.addView(it)
+        }
+        bottomMarginField = numberField("下側の追加余白（0〜300）").also {
+            it.setText(AppStore.bottomMarginDp(this).toString())
+            content.addView(it)
+        }
+        content.addView(Button(this).apply {
+            text = "上下の余白を保存"
+            setOnClickListener { saveMargins() }
+        })
+
+        content.addView(TextView(this).apply {
+            text = "全サイト共通のUserScript"
+            textSize = 20f
+            setPadding(0, 18, 0, 4)
+        })
+        content.addView(TextView(this).apply {
+            text = "登録したスクリプトは、@match / @include などの適用条件に一致するサイトで実行します。"
+            textSize = 13f
+        })
+        content.addView(Button(this).apply {
+            text = "共通UserScript（.user.js）を追加"
+            setOnClickListener { chooseFile("*/*", pickGlobalScript) }
+        })
+        globalScriptBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(globalScriptBox)
+
         content.addView(TextView(this).apply {
             text = "登録済みサイト"
             textSize = 20f
-            setPadding(0, 14, 0, 8)
+            setPadding(0, 18, 0, 8)
         })
         listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(listBox)
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
-        // Keep app controls inside the safe area around system bars and display cutouts.
         root.setOnApplyWindowInsetsListener { view, insets ->
             val left: Int
             val top: Int
@@ -122,6 +167,25 @@ class MainActivity : Activity() {
         setPadding(12, 10, 12, 10)
     }
 
+    private fun numberField(hintText: String) = EditText(this).apply {
+        hint = hintText
+        textSize = 16f
+        inputType = InputType.TYPE_CLASS_NUMBER
+        setSingleLine(true)
+        setPadding(12, 10, 12, 10)
+    }
+
+    private fun saveMargins() {
+        val top = topMarginField.text.toString().toIntOrNull()
+        val bottom = bottomMarginField.text.toString().toIntOrNull()
+        if (top == null || bottom == null || top !in 0..300 || bottom !in 0..300) {
+            Toast.makeText(this, "上下の余白は0〜300の整数で入力してください", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AppStore.saveMargins(this, top, bottom)
+        Toast.makeText(this, "上下の余白を保存しました。開いているサイトを再起動すると反映されます。", Toast.LENGTH_LONG).show()
+    }
+
     private fun chooseFile(type: String, request: Int) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -136,12 +200,24 @@ class MainActivity : Activity() {
         if (resultCode != Activity.RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            if (requestCode == pickIcon) {
-                selectedIcon = AppStore.copyUri(this, uri, "icon_${UUID.randomUUID()}")
-                status.text = "アイコン画像を選択しました"
-            } else if (requestCode == pickScript) {
-                selectedScript = AppStore.copyUri(this, uri, "script_${UUID.randomUUID()}.user.js")
-                status.text = "UserScriptを選択しました"
+            when (requestCode) {
+                pickIcon -> {
+                    selectedIcon = AppStore.copyUri(this, uri, "icon_${UUID.randomUUID()}")
+                    status.text = "アイコン画像を選択しました"
+                }
+                pickScript -> {
+                    selectedScript = AppStore.copyUri(this, uri, "script_${UUID.randomUUID()}.user.js")
+                    status.text = "サイト専用UserScriptを選択しました"
+                }
+                pickGlobalScript -> {
+                    val path = AppStore.copyUri(this, uri, "global_script_${UUID.randomUUID()}.user.js")
+                    val name = uri.lastPathSegment?.substringAfterLast('/')?.substringBefore('?')
+                        ?.takeIf { it.isNotBlank() } ?: "UserScript"
+                    AppStore.saveGlobalScript(this,
+                        GlobalUserScript(UUID.randomUUID().toString(), name, path, true))
+                    renderGlobalScripts()
+                    Toast.makeText(this, "共通UserScriptを追加しました", Toast.LENGTH_SHORT).show()
+                }
             }
         } catch (e: Exception) {
             Toast.makeText(this, "ファイルを読み込めません: ${e.message}", Toast.LENGTH_LONG).show()
@@ -194,6 +270,43 @@ class MainActivity : Activity() {
         manager.requestPinShortcut(builder.build(), null)
     }
 
+    private fun renderGlobalScripts() {
+        globalScriptBox.removeAllViews()
+        val scripts = AppStore.globalScripts(this)
+        if (scripts.isEmpty()) {
+            globalScriptBox.addView(TextView(this).apply { text = "共通UserScriptはまだありません。" })
+        }
+        scripts.forEach { script ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(8, 8, 8, 8)
+            }
+            row.addView(TextView(this).apply {
+                text = script.name + if (script.enabled) "（有効）" else "（無効）"
+                textSize = 15f
+            })
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            actions.addView(Button(this@MainActivity).apply {
+                text = if (script.enabled) "無効化" else "有効化"
+                setOnClickListener {
+                    AppStore.saveGlobalScript(this@MainActivity, script.copy(enabled = !script.enabled))
+                    renderGlobalScripts()
+                }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            actions.addView(Button(this@MainActivity).apply {
+                text = "削除"
+                setOnClickListener {
+                    AppStore.deleteGlobalScript(this@MainActivity, script.id)
+                    renderGlobalScripts()
+                }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(actions)
+            globalScriptBox.addView(row)
+            globalScriptBox.addView(View(this).apply { setBackgroundColor(0x22000000) },
+                LinearLayout.LayoutParams(-1, 1))
+        }
+    }
+
     private fun renderEntries() {
         listBox.removeAllViews()
         val entries = AppStore.all(this)
@@ -210,7 +323,7 @@ class MainActivity : Activity() {
                 textSize = 17f
             })
             row.addView(TextView(this).apply {
-                text = entry.url + if (entry.scriptPath.isNotBlank()) "\nUserScriptあり" else ""
+                text = entry.url + if (entry.scriptPath.isNotBlank()) "\nサイト専用UserScriptあり" else ""
                 textSize = 12f
             })
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
