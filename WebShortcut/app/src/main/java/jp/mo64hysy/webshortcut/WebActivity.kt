@@ -33,17 +33,25 @@ class WebActivity : Activity() {
         setContentView(webView)
         // Keep web content inside the safe area around system bars and display cutouts.
         webView.setOnApplyWindowInsetsListener { view, insets ->
-            val safe = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-            } else {
-                android.graphics.Insets.of(
-                    insets.systemWindowInsetLeft,
-                    insets.systemWindowInsetTop,
-                    insets.systemWindowInsetRight,
-                    insets.systemWindowInsetBottom
+            val left: Int
+            val top: Int
+            val right: Int
+            val bottom: Int
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val safe = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
                 )
+                left = safe.left
+                top = safe.top
+                right = safe.right
+                bottom = safe.bottom
+            } else {
+                left = insets.systemWindowInsetLeft
+                top = insets.systemWindowInsetTop
+                right = insets.systemWindowInsetRight
+                bottom = insets.systemWindowInsetBottom
             }
-            view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            view.setPadding(left, top, right, bottom)
             insets
         }
         webView.requestApplyInsets()
