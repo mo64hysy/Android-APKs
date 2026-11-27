@@ -7,6 +7,7 @@ Androidアプリのソースコードとビルド済みAPKをまとめるリポ�
 - [Splatoon3Stats](./Splatoon3Stats/README.md) — イカリング3の表示テキストを取得してGPT向けに共有する試作アプリ
 - [KeyMouse](./KeyMouse/README.md) — AndroidスマートフォンをBluetoothキーボード・マウスにする試作アプリ
 - [Wi-Fiマナーモード](./WifiSilentMode/README.md) — 登録済みWi-Fiに応じて通常モード／バイブレーションを自動切り替え
+- [GboardLongPressFlick](./GboardLongPressFlick/README.md) — Gboardに300ms長押し＋方向フリックで数字・記号を入力する機能を追加する改造プロジェクト
 
 ## APKの入手
 
